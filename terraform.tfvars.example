@@ -1,0 +1,19 @@
+# Copy this file to terraform.tfvars and fill in the values
+# Alternatively, set these as environment variables with TF_VAR_ prefix
+
+# Required: Your EC2 key pair name (must already exist in AWS)
+key_name = "your-key-pair-name"
+
+# Required: Your public IP for SSH access (auto-detected by up.sh if not set)
+# my_ip = "1.2.3.4"
+
+# Optional: Override defaults
+# aws_region = "us-west-2"
+# instance_type = "g5.xlarge"
+# fallback_instance_type = "g4dn.xlarge"
+# root_volume_size = 40
+# data_volume_size = 200
+# wireguard_port = 51820
+
+# Set to true only if you want to delete the data volume on destroy
+# delete_data_volume = false

@@ -1,0 +1,75 @@
+variable "aws_region" {
+  description = "AWS region to deploy resources"
+  type        = string
+  default     = "us-west-2"
+}
+
+variable "instance_type" {
+  description = "EC2 instance type (g5.xlarge preferred, g4dn.xlarge fallback)"
+  type        = string
+  default     = "g5.xlarge"
+}
+
+variable "fallback_instance_type" {
+  description = "Fallback EC2 instance type if primary is unavailable"
+  type        = string
+  default     = "g4dn.xlarge"
+}
+
+variable "root_volume_size" {
+  description = "Size of root EBS volume in GB"
+  type        = number
+  default     = 40
+}
+
+variable "data_volume_size" {
+  description = "Size of persistent data EBS volume in GB"
+  type        = number
+  default     = 200
+}
+
+variable "my_ip" {
+  description = "Your current public IP address for SSH access (will be appended with /32)"
+  type        = string
+}
+
+variable "key_name" {
+  description = "Name of existing EC2 key pair for SSH access"
+  type        = string
+}
+
+variable "wireguard_port" {
+  description = "UDP port for WireGuard VPN"
+  type        = number
+  default     = 51820
+}
+
+variable "wireguard_server_ip" {
+  description = "WireGuard server IP in the VPN subnet"
+  type        = string
+  default     = "10.200.200.1"
+}
+
+variable "wireguard_client_ip" {
+  description = "WireGuard client IP in the VPN subnet"
+  type        = string
+  default     = "10.200.200.2"
+}
+
+variable "wireguard_subnet" {
+  description = "WireGuard VPN subnet CIDR"
+  type        = string
+  default     = "10.200.200.0/24"
+}
+
+variable "delete_data_volume" {
+  description = "Set to true to delete the persistent data volume on destroy"
+  type        = bool
+  default     = false
+}
+
+variable "project_name" {
+  description = "Project name for resource tagging"
+  type        = string
+  default     = "gpu-streaming-workstation"
+}

@@ -1,0 +1,21 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform.lock.hcl
+
+# Terraform variables (may contain secrets)
+terraform.tfvars
+*.auto.tfvars
+
+# SSH keys
+*.pem
+*.key
+
+# WireGuard configs (contain private keys)
+wg0-client.conf
+
+# OS files
+.DS_Store
