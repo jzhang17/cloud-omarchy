@@ -33,11 +33,6 @@ variable "my_ip" {
   type        = string
 }
 
-variable "key_name" {
-  description = "Name of existing EC2 key pair for SSH access"
-  type        = string
-}
-
 variable "wireguard_port" {
   description = "UDP port for WireGuard VPN"
   type        = number

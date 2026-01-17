@@ -16,19 +16,10 @@ if [ -z "${TF_VAR_my_ip:-}" ]; then
     echo "Detected IP: $TF_VAR_my_ip"
 fi
 
-if [ -z "${TF_VAR_key_name:-}" ]; then
-    echo ""
-    echo "ERROR: TF_VAR_key_name is not set."
-    echo "Please set it to your EC2 key pair name:"
-    echo "  export TF_VAR_key_name=your-key-name"
-    echo ""
-    exit 1
-fi
-
 echo ""
 echo "Configuration:"
 echo "  SSH allowed from: $TF_VAR_my_ip/32"
-echo "  EC2 Key Pair: $TF_VAR_key_name"
+echo "  Access method: AWS SSM Session Manager"
 echo ""
 
 # Initialize Terraform
@@ -64,24 +55,21 @@ echo ""
 PUBLIC_IP=$(terraform output -raw public_ip)
 INSTANCE_ID=$(terraform output -raw instance_id)
 DATA_VOLUME_ID=$(terraform output -raw data_volume_id)
-SSH_CMD=$(terraform output -raw ssh_command)
-SCP_CMD=$(terraform output -raw scp_wireguard_config)
+SSM_CMD=$(terraform output -raw ssm_session_command)
 
 echo "Instance ID: $INSTANCE_ID"
 echo "Data Volume ID: $DATA_VOLUME_ID"
 echo "Public IP: $PUBLIC_IP"
 echo ""
-echo "SSH Command:"
-echo "  $SSH_CMD"
-echo ""
-echo "Fetch WireGuard Config:"
-echo "  $SCP_CMD"
+echo "Connect via SSM Session Manager:"
+echo "  aws ssm start-session --target $INSTANCE_ID --region us-west-2"
 echo ""
 echo "=========================================="
 echo ""
 echo "NOTE: The instance needs a few minutes to complete setup."
 echo "You can check the cloud-init log with:"
-echo "  ssh ... 'tail -f /var/log/user-data.log'"
+echo "  aws ssm start-session --target $INSTANCE_ID --region us-west-2"
+echo "  Then run: tail -f /var/log/user-data.log"
 echo ""
 echo "Once setup is complete, the WireGuard config will be at:"
 echo "  /home/ubuntu/wg0-client.conf"

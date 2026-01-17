@@ -88,11 +88,51 @@ resource "aws_ebs_volume" "data" {
   }
 }
 
+# IAM Role for SSM Session Manager access
+resource "aws_iam_role" "streaming_workstation" {
+  name = "${var.project_name}-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Name    = "${var.project_name}-role"
+    Project = var.project_name
+  }
+}
+
+# Attach SSM Managed Instance Core policy for Session Manager access
+resource "aws_iam_role_policy_attachment" "ssm_managed_instance_core" {
+  role       = aws_iam_role.streaming_workstation.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+# Instance Profile to attach IAM role to EC2
+resource "aws_iam_instance_profile" "streaming_workstation" {
+  name = "${var.project_name}-instance-profile"
+  role = aws_iam_role.streaming_workstation.name
+
+  tags = {
+    Name    = "${var.project_name}-instance-profile"
+    Project = var.project_name
+  }
+}
+
 # EC2 Instance
 resource "aws_instance" "streaming_workstation" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
-  key_name               = var.key_name
+  iam_instance_profile   = aws_iam_instance_profile.streaming_workstation.name
   vpc_security_group_ids = [aws_security_group.streaming_workstation.id]
   availability_zone      = data.aws_availability_zones.available.names[0]
 

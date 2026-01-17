@@ -23,14 +23,14 @@ output "ssh_cidr_used" {
   value       = "${var.my_ip}/32"
 }
 
-output "ssh_command" {
-  description = "SSH command to connect to the instance"
-  value       = "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_instance.streaming_workstation.public_ip}"
+output "ssm_session_command" {
+  description = "AWS SSM Session Manager command to connect to the instance"
+  value       = "aws ssm start-session --target ${aws_instance.streaming_workstation.id} --region ${var.aws_region}"
 }
 
-output "scp_wireguard_config" {
-  description = "SCP command to fetch WireGuard client config"
-  value       = "scp -i ~/.ssh/${var.key_name}.pem ubuntu@${aws_instance.streaming_workstation.public_ip}:~/wg0-client.conf ."
+output "ssm_scp_wireguard_config" {
+  description = "AWS SSM command to fetch WireGuard client config (requires Session Manager plugin)"
+  value       = "aws ssm start-session --target ${aws_instance.streaming_workstation.id} --region ${var.aws_region} --document-name AWS-StartInteractiveCommand --parameters command=\"cat /home/ubuntu/wg0-client.conf\""
 }
 
 output "instance_type_used" {
