@@ -10,9 +10,6 @@ This is a Terraform project for deploying a low-latency GPU Linux streaming work
 
 ### Deployment
 ```bash
-# Set required variable (EC2 key pair must exist in AWS)
-export TF_VAR_key_name=your-key-pair-name
-
 # Deploy (auto-detects public IP for SSH whitelist)
 ./up.sh
 
@@ -29,7 +26,7 @@ TF_VAR_delete_data_volume=true ./down.sh
 ### Direct Terraform Commands
 ```bash
 terraform init
-terraform plan -var="key_name=mykey" -var="my_ip=$(curl -s https://api.ipify.org)"
+terraform plan -var="my_ip=$(curl -s https://api.ipify.org)"
 terraform apply
 terraform destroy
 ```
@@ -37,7 +34,7 @@ terraform destroy
 ## Architecture
 
 **Infrastructure Components:**
-- EC2 instance (g5.xlarge, Ubuntu 22.04) with GPU for streaming
+- EC2 instance (g4dn.xlarge in us-west-1, Ubuntu 22.04) with GPU for streaming
 - Persistent 200GB gp3 EBS data volume (separate from root, survives rebuilds)
 - Security group: SSH from deployer IP only, WireGuard UDP 51820 from anywhere
 

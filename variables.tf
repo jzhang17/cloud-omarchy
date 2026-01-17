@@ -1,17 +1,11 @@
 variable "aws_region" {
   description = "AWS region to deploy resources"
   type        = string
-  default     = "us-west-2"
+  default     = "us-west-1"
 }
 
 variable "instance_type" {
-  description = "EC2 instance type (g5.xlarge preferred, g4dn.xlarge fallback)"
-  type        = string
-  default     = "g5.xlarge"
-}
-
-variable "fallback_instance_type" {
-  description = "Fallback EC2 instance type if primary is unavailable"
+  description = "EC2 instance type"
   type        = string
   default     = "g4dn.xlarge"
 }

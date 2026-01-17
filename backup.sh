@@ -27,7 +27,7 @@ echo "Data Volume ID: $DATA_VOLUME_ID"
 echo ""
 
 # Get the AWS region from Terraform
-AWS_REGION=$(terraform output -raw availability_zone 2>/dev/null | sed 's/[a-z]$//' || echo "us-west-2")
+AWS_REGION=$(terraform output -raw availability_zone 2>/dev/null | sed 's/[a-z]$//' || echo "us-west-1")
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 SNAPSHOT_DESCRIPTION="gpu-streaming-workstation-backup-$TIMESTAMP"
