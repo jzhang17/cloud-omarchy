@@ -56,4 +56,20 @@ terraform destroy
 | `variables.tf` | Input variables with defaults |
 | `outputs.tf` | Terraform outputs for scripts |
 | `user_data.sh` | Cloud-init: volume setup, WireGuard config, fstab |
-| `up.sh` / `down.sh` / `backup.sh` | Wrapper scripts for operations |
+| `up.sh` / `down.sh` / `backup.sh` | Terraform wrapper scripts |
+| `auto-deploy.sh` | AWS CLI deployment with quota polling |
+| `connect.sh` | SSM session helper |
+| `status.sh` | Instance/volume/quota status check |
+
+## AWS CLI Deployment (Alternative to Terraform)
+
+```bash
+# Auto-deploy with quota polling (runs in background)
+./auto-deploy.sh
+
+# Check status
+./status.sh
+
+# Connect to instance
+./connect.sh
+```
