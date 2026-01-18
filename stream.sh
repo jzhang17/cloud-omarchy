@@ -32,6 +32,7 @@ echo ""
 
 run_command() {
     local cmd="$1"
+    local timeout="${2:-10}"
     local cmd_id
     cmd_id=$(aws ssm send-command \
         --region "$REGION" \
@@ -41,7 +42,7 @@ run_command() {
         --query 'Command.CommandId' \
         --output text)
 
-    sleep 3
+    sleep "$timeout"
     aws ssm get-command-invocation \
         --region "$REGION" \
         --command-id "$cmd_id" \
@@ -55,30 +56,47 @@ case "$ACTION" in
         echo "Starting streaming services..."
         echo ""
 
-        # Disable NVIDIA EGL GBM (causes X server crashes)
-        run_command "mv /usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json /usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json.disabled 2>/dev/null || true"
+        # Step 1: Fix permissions for input devices
+        echo "Setting up permissions..."
+        run_command "chmod 666 /dev/uinput 2>/dev/null || true; chmod 666 /dev/dri/card0 2>/dev/null || true; usermod -aG input,video arch 2>/dev/null || true" 3
 
-        # Kill any existing X/Sunshine
-        run_command "pkill -9 Xvfb 2>/dev/null || true; pkill -9 sunshine 2>/dev/null || true"
-        sleep 2
+        # Step 2: Disable NVIDIA EGL GBM (causes X server crashes with Xvfb)
+        run_command "mv /usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json /usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json.disabled 2>/dev/null || true" 2
 
-        # Start Xvfb
-        echo "Starting virtual display..."
-        run_command "__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json Xvfb :0 -screen 0 1920x1080x24 &"
-        sleep 2
+        # Step 3: Kill any existing X/Sunshine/WM processes
+        echo "Cleaning up old processes..."
+        run_command "pkill -9 Xvfb 2>/dev/null || true; pkill -9 sunshine 2>/dev/null || true; pkill -9 openbox 2>/dev/null || true" 2
+        sleep 1
 
-        # Start Sunshine
+        # Step 4: Set up XDG runtime directory
+        run_command "mkdir -p /run/user/1000; chown arch:arch /run/user/1000; chmod 700 /run/user/1000" 2
+
+        # Step 5: Start Xvfb with XTEST extension
+        echo "Starting virtual display (Xvfb)..."
+        run_command "__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json Xvfb :0 -screen 0 1920x1080x24 +extension XTEST &" 3
+
+        # Step 6: Start window manager (so there's something to see)
+        echo "Starting window manager..."
+        run_command "sudo -u arch bash -c 'export DISPLAY=:0; openbox &' 2>/dev/null || true" 2
+
+        # Step 7: Start a terminal
+        run_command "sudo -u arch bash -c 'export DISPLAY=:0; xterm -geometry 100x30+50+50 &' 2>/dev/null || true" 2
+
+        # Step 8: Start Sunshine with proper environment
         echo "Starting Sunshine streaming server..."
-        run_command "sudo -u arch bash -c 'export DISPLAY=:0; export XDG_RUNTIME_DIR=/run/user/1000; mkdir -p /run/user/1000; sunshine &'"
-        sleep 3
+        run_command "sudo -u arch bash -c 'export DISPLAY=:0; export XDG_RUNTIME_DIR=/run/user/1000; sunshine > /tmp/sunshine.log 2>&1 &'" 4
 
-        # Check status
+        # Step 9: Verify services
         echo ""
         echo "Checking services..."
-        XVFB_STATUS=$(run_command "pgrep Xvfb > /dev/null && echo RUNNING || echo STOPPED")
-        SUNSHINE_STATUS=$(run_command "pgrep sunshine > /dev/null && echo RUNNING || echo STOPPED")
+        sleep 2
+
+        XVFB_STATUS=$(run_command "pgrep Xvfb > /dev/null && echo RUNNING || echo STOPPED" 2)
+        SUNSHINE_STATUS=$(run_command "pgrep sunshine > /dev/null && echo RUNNING || echo STOPPED" 2)
+        OPENBOX_STATUS=$(run_command "pgrep openbox > /dev/null && echo RUNNING || echo STOPPED" 2)
 
         echo "  Xvfb:     $XVFB_STATUS"
+        echo "  Openbox:  $OPENBOX_STATUS"
         echo "  Sunshine: $SUNSHINE_STATUS"
         echo ""
 
@@ -87,21 +105,27 @@ case "$ACTION" in
             echo "Streaming Ready!"
             echo "=========================================="
             echo ""
-            echo "1. Connect VPN (if not connected): ./vpn.sh up"
-            echo "2. Open Moonlight"
-            echo "3. Add PC: 10.200.200.1"
-            echo "4. First time: Accept certificate and enter PIN from:"
-            echo "   https://10.200.200.1:47990"
+            echo "Next steps:"
+            echo "  1. Connect VPN: ./vpn.sh up"
+            echo "  2. Open Moonlight on your Mac"
+            echo "  3. Add PC: 10.200.200.1"
+            echo "  4. First time only - pair with PIN:"
+            echo "     Open https://10.200.200.1:47990 in browser"
+            echo ""
+            echo "Troubleshooting:"
+            echo "  - If mouse doesn't work: disconnect and reconnect in Moonlight"
+            echo "  - Check status: ./stream.sh status"
+            echo "  - View logs: ./stream.sh logs"
             echo ""
         else
             echo "WARNING: Some services may not be running correctly."
-            echo "Try: ./stream.sh status"
+            echo "Check logs: ./stream.sh logs"
         fi
         ;;
 
     stop)
         echo "Stopping streaming services..."
-        run_command "pkill -9 Xvfb 2>/dev/null || true; pkill -9 sunshine 2>/dev/null || true"
+        run_command "pkill -9 sunshine 2>/dev/null || true; pkill -9 openbox 2>/dev/null || true; pkill -9 xterm 2>/dev/null || true; pkill -9 Xvfb 2>/dev/null || true" 3
         echo "Services stopped."
         ;;
 
@@ -109,24 +133,23 @@ case "$ACTION" in
         echo "Service status:"
         echo ""
 
-        XVFB_STATUS=$(run_command "ps aux | grep Xvfb | grep -v grep || echo 'Xvfb: NOT RUNNING'")
-        SUNSHINE_STATUS=$(run_command "ps aux | grep sunshine | grep -v grep || echo 'Sunshine: NOT RUNNING'")
+        STATUS=$(run_command "echo '=== Processes ==='; ps aux | grep -E 'Xvfb|sunshine|openbox' | grep -v grep || echo 'No streaming processes'; echo ''; echo '=== Sunshine Ports ==='; ss -tlnp 2>/dev/null | grep sunshine || echo 'No ports listening'; echo ''; echo '=== Input Devices ==='; ls -la /dev/uinput /dev/dri/card0 2>/dev/null || echo 'Device check failed'" 5)
+        echo "$STATUS"
+        ;;
 
-        echo "$XVFB_STATUS"
-        echo "$SUNSHINE_STATUS"
+    logs)
+        echo "Recent Sunshine logs:"
         echo ""
-
-        # Check ports
-        echo "Sunshine ports:"
-        run_command "ss -tlnp | grep sunshine | head -5 || echo 'No ports listening'"
+        run_command "tail -50 /tmp/sunshine.log 2>/dev/null || journalctl -u sunshine --no-pager -n 50 2>/dev/null || echo 'No logs found'" 5
         ;;
 
     *)
-        echo "Usage: $0 [start|stop|status]"
+        echo "Usage: $0 [start|stop|status|logs]"
         echo ""
         echo "Commands:"
-        echo "  start   - Start Xvfb and Sunshine (default)"
-        echo "  stop    - Stop streaming services"
-        echo "  status  - Show service status"
+        echo "  start   - Start Xvfb, Openbox, and Sunshine (default)"
+        echo "  stop    - Stop all streaming services"
+        echo "  status  - Show service status and ports"
+        echo "  logs    - Show recent Sunshine logs"
         ;;
 esac

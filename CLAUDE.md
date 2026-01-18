@@ -41,9 +41,10 @@ Omarchy Cloud - A GPU-accelerated Linux streaming workstation on AWS. Stream a f
 | `./vpn.sh up` | Connect to WireGuard VPN |
 | `./vpn.sh down` | Disconnect VPN |
 | `./vpn.sh status` | Show VPN connection status |
-| `./stream.sh` | Start Xvfb + Sunshine streaming |
+| `./stream.sh` | Start Xvfb + Openbox + Sunshine |
 | `./stream.sh stop` | Stop streaming services |
 | `./stream.sh status` | Check streaming service status |
+| `./stream.sh logs` | View recent Sunshine logs |
 | `./connect.sh` | SSM shell into instance |
 | `./connect.sh wg` | Fetch WireGuard config from instance |
 
@@ -193,9 +194,52 @@ This will:
 
 ## Troubleshooting
 
+### Mouse/Keyboard Not Working
+
+**Symptom:** Video streams but mouse cursor doesn't move.
+
+**Solution:** Fully disconnect from Moonlight and reconnect:
+1. Press Ctrl+Shift+Alt+Q (or your quit shortcut) to disconnect
+2. Wait 3-5 seconds
+3. Reconnect to 10.200.200.1
+
+This re-establishes the control channel which carries input events.
+
+**If that doesn't work:**
+```bash
+./stream.sh stop
+./stream.sh start  # Restarts with fresh permissions
+```
+
+### Black Screen in Stream
+
+**Symptom:** Moonlight connects but shows black screen or just an X cursor.
+
+**Solution:** The `stream.sh` script now automatically starts Openbox window manager and xterm. If you still see black:
+
+```bash
+./connect.sh  # SSM into instance
+DISPLAY=:0 openbox &
+DISPLAY=:0 xterm &
+```
+
 ### X Server Crashes
 
-The NVIDIA EGL libraries can conflict with Xvfb. The `stream.sh` script handles this by disabling the nvidia_gbm.json platform file.
+The NVIDIA EGL libraries can conflict with Xvfb. The `stream.sh` script handles this by:
+- Disabling `/usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json`
+- Using Mesa EGL instead: `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`
+
+### Video Capture Error (503)
+
+**Symptom:** Sunshine shows "Failed to initialize video capture" error.
+
+**Cause:** Sunshine started before Xvfb was ready or without DISPLAY variable.
+
+**Solution:**
+```bash
+./stream.sh stop
+./stream.sh start
+```
 
 ### SSM Connection Issues
 
@@ -211,6 +255,7 @@ If offline, wait a minute after instance start or reboot the instance.
 1. Verify VPN is connected: `./vpn.sh status`
 2. Verify streaming is running: `./stream.sh status`
 3. Check Sunshine ports are listening (should show 47984, 47989, 47990, 48010)
+4. Check logs: `./stream.sh logs`
 
 ### WireGuard Config Outdated
 
@@ -220,6 +265,12 @@ The instance gets a new public IP on each start. The `start.sh` script updates `
 ./vpn.sh down
 ./vpn.sh up  # Will install updated config
 ```
+
+## Known Issues
+
+- **Mouse input occasionally doesn't work on first connect** - disconnect and reconnect in Moonlight to fix
+- **Hyprland not yet configured** - currently using Openbox; Hyprland needs Wayland support investigation
+- **Input requires fresh connection** - if you restart streaming services, reconnect in Moonlight
 
 ## Notes
 
