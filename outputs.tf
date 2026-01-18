@@ -8,11 +8,6 @@ output "instance_id" {
   value       = aws_instance.streaming_workstation.id
 }
 
-output "data_volume_id" {
-  description = "EBS data volume ID"
-  value       = aws_ebs_volume.data.id
-}
-
 output "wireguard_port" {
   description = "WireGuard UDP port"
   value       = var.wireguard_port

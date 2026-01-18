@@ -5,7 +5,6 @@ exec > >(tee /var/log/user-data.log) 2>&1
 echo "=== Starting Omarchy cloud setup at $(date) ==="
 
 # Variables from Terraform templatefile
-DATA_DEVICE="${data_device}"
 WG_PORT="${wireguard_port}"
 WG_SERVER_IP="${wireguard_server_ip}"
 WG_CLIENT_IP="${wireguard_client_ip}"
@@ -15,86 +14,8 @@ WG_SUBNET="${wireguard_subnet}"
 DEFAULT_USER="arch"
 USER_HOME="/home/$DEFAULT_USER"
 
-# Fallback device names (NVMe naming varies)
-find_data_device() {
-    local max_wait=120
-    local waited=0
-
-    while [ $waited -lt $max_wait ]; do
-        for dev in /dev/nvme1n1 /dev/xvdf /dev/sdf; do
-            if [ -b "$dev" ]; then
-                echo "$dev"
-                return 0
-            fi
-        done
-        echo "Waiting for data device to appear..." >&2
-        sleep 5
-        waited=$((waited + 5))
-    done
-
-    echo "ERROR: Data device not found after $${max_wait}s" >&2
-    return 1
-}
-
 # ============================================
-# PART 1: Data Volume Setup
-# ============================================
-echo "=== Setting up data volume ==="
-
-DATA_DEVICE=$(find_data_device)
-echo "Found data device: $DATA_DEVICE"
-
-MOUNT_POINT="/mnt/data"
-mkdir -p "$MOUNT_POINT"
-
-# Check if device has a filesystem
-if ! blkid "$DATA_DEVICE" | grep -q 'TYPE='; then
-    echo "Data volume is empty, formatting as ext4..."
-    mkfs.ext4 -L data-volume "$DATA_DEVICE"
-fi
-
-# Get UUID for fstab
-DATA_UUID=$(blkid -s UUID -o value "$DATA_DEVICE")
-echo "Data volume UUID: $DATA_UUID"
-
-# Mount the data volume
-if ! mountpoint -q "$MOUNT_POINT"; then
-    mount "$DATA_DEVICE" "$MOUNT_POINT"
-fi
-
-# Create home directory on data volume if it doesn't exist
-if [ ! -d "$MOUNT_POINT/home" ]; then
-    echo "Creating /mnt/data/home directory..."
-    mkdir -p "$MOUNT_POINT/home"
-    if [ -d "$USER_HOME" ] && [ "$(ls -A $USER_HOME 2>/dev/null)" ]; then
-        cp -a "$USER_HOME/." "$MOUNT_POINT/home/"
-    fi
-    chown -R $DEFAULT_USER:$DEFAULT_USER "$MOUNT_POINT/home"
-fi
-
-# Bind mount /mnt/data/home to /home/arch
-echo "Setting up bind mount for $USER_HOME..."
-if mountpoint -q "$USER_HOME"; then
-    umount "$USER_HOME" || true
-fi
-
-mount --bind "$MOUNT_POINT/home" "$USER_HOME"
-chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME"
-
-# Update /etc/fstab
-echo "Updating /etc/fstab..."
-sed -i '\|/mnt/data|d' /etc/fstab
-sed -i "\|$USER_HOME|d" /etc/fstab
-
-cat >> /etc/fstab << EOF
-# Persistent data volume
-UUID=$DATA_UUID  /mnt/data  ext4  defaults,nofail  0  2
-# Bind mount for arch home
-/mnt/data/home  $USER_HOME  none  bind  0  0
-EOF
-
-# ============================================
-# PART 2: System Updates and Base Packages
+# PART 1: System Updates and Base Packages
 # ============================================
 echo "=== Updating system and installing base packages ==="
 
@@ -127,7 +48,7 @@ systemctl enable amazon-ssm-agent
 systemctl start amazon-ssm-agent
 
 # ============================================
-# PART 3: WireGuard Server Configuration
+# PART 2: WireGuard Server Configuration
 # ============================================
 echo "=== Configuring WireGuard server ==="
 
@@ -174,7 +95,7 @@ EOF
 chmod 600 "$WG_DIR/wg0.conf"
 
 # ============================================
-# PART 4: Client Configuration
+# PART 3: Client Configuration
 # ============================================
 echo "=== Generating client config ==="
 
@@ -195,12 +116,8 @@ EOF
 chown $DEFAULT_USER:$DEFAULT_USER "$CLIENT_CONFIG"
 chmod 600 "$CLIENT_CONFIG"
 
-# Also save to the persistent data volume
-cp "$CLIENT_CONFIG" "$MOUNT_POINT/home/wg0-client.conf"
-chown $DEFAULT_USER:$DEFAULT_USER "$MOUNT_POINT/home/wg0-client.conf"
-
 # ============================================
-# PART 5: Enable IP Forwarding and Start WireGuard
+# PART 4: Enable IP Forwarding and Start WireGuard
 # ============================================
 echo "=== Enabling IP forwarding ==="
 
@@ -215,9 +132,9 @@ systemctl enable wg-quick@wg0
 systemctl start wg-quick@wg0
 
 # ============================================
-# PART 6: Install Omarchy
+# PART 5: Install Omarchy
 # ============================================
-echo "=== Installing Omarchy ==="
+echo "=== Setting up Omarchy installer ==="
 
 # Create setup script for the arch user to run
 cat > "$USER_HOME/install-omarchy.sh" << 'OMARCHY_SCRIPT'
@@ -236,11 +153,7 @@ OMARCHY_SCRIPT
 chmod +x "$USER_HOME/install-omarchy.sh"
 chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/install-omarchy.sh"
 
-# Run omarchy install as the arch user
-# Note: This requires user interaction, so we'll set it up to run on first login
-# or run it non-interactively if possible
-
-# For now, create a first-login script
+# Create a first-login script
 cat > "$USER_HOME/.bash_profile" << 'PROFILE'
 # First login Omarchy setup
 if [ ! -f "$HOME/.omarchy-installed" ]; then
@@ -262,12 +175,11 @@ PROFILE
 chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/.bash_profile"
 
 # ============================================
-# PART 7: Install Sunshine for Streaming
+# PART 6: Install Sunshine for Streaming
 # ============================================
 echo "=== Installing Sunshine streaming server ==="
 
-# Install sunshine from AUR using yay
-# First install yay if not present
+# Install yay AUR helper if not present
 if ! command -v yay &> /dev/null; then
     echo "Installing yay AUR helper..."
     cd /tmp
@@ -313,7 +225,7 @@ systemctl daemon-reload
 systemctl enable sunshine
 
 # ============================================
-# PART 8: Configure Hyprland for Headless
+# PART 7: Configure Hyprland for Headless
 # ============================================
 echo "=== Setting up Hyprland headless configuration ==="
 
@@ -370,7 +282,7 @@ HYPRCONF
 chown -R $DEFAULT_USER:$DEFAULT_USER "$HYPRLAND_CONFIG"
 
 # ============================================
-# PART 9: Create startup script
+# PART 8: Create startup script
 # ============================================
 echo "=== Creating startup scripts ==="
 
@@ -400,7 +312,7 @@ chmod +x "$USER_HOME/start-streaming.sh"
 chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/start-streaming.sh"
 
 # ============================================
-# PART 10: Summary
+# PART 9: Summary
 # ============================================
 echo ""
 echo "=========================================="
@@ -435,12 +347,8 @@ Setup Steps:
 2. Run ~/install-omarchy.sh to install Omarchy
 3. Run ~/start-streaming.sh to start headless streaming
 4. Connect with Moonlight to $WG_SERVER_IP
-
-Data Volume: $DATA_DEVICE mounted at $MOUNT_POINT
-Home Directory: $USER_HOME (persistent)
 EOF
 
 chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/cloud-omarchy-info.txt"
-cp "$USER_HOME/cloud-omarchy-info.txt" "$MOUNT_POINT/home/"
 
 echo "=== user_data.sh completed at $(date) ==="

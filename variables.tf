@@ -13,12 +13,6 @@ variable "instance_type" {
 variable "root_volume_size" {
   description = "Size of root EBS volume in GB"
   type        = number
-  default     = 40
-}
-
-variable "data_volume_size" {
-  description = "Size of persistent data EBS volume in GB"
-  type        = number
   default     = 200
 }
 
@@ -49,12 +43,6 @@ variable "wireguard_subnet" {
   description = "WireGuard VPN subnet CIDR"
   type        = string
   default     = "10.200.200.0/24"
-}
-
-variable "delete_data_volume" {
-  description = "Set to true to delete the persistent data volume on destroy"
-  type        = bool
-  default     = false
 }
 
 variable "project_name" {

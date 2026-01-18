@@ -71,23 +71,6 @@ resource "aws_security_group" "streaming_workstation" {
   }
 }
 
-# Persistent Data Volume (created separately to survive instance rebuilds)
-resource "aws_ebs_volume" "data" {
-  availability_zone = data.aws_availability_zones.available.names[0]
-  size              = var.data_volume_size
-  type              = "gp3"
-
-  # Prevent accidental deletion unless explicitly requested
-  lifecycle {
-    prevent_destroy = false
-  }
-
-  tags = {
-    Name    = "${var.project_name}-data-volume"
-    Project = var.project_name
-  }
-}
-
 # IAM Role for SSM Session Manager access
 resource "aws_iam_role" "streaming_workstation" {
   name = "${var.project_name}-role"
@@ -144,7 +127,6 @@ resource "aws_instance" "streaming_workstation" {
   }
 
   user_data = templatefile("${path.module}/user_data.sh", {
-    data_device         = "/dev/nvme1n1"
     wireguard_port      = var.wireguard_port
     wireguard_server_ip = var.wireguard_server_ip
     wireguard_client_ip = var.wireguard_client_ip
@@ -154,26 +136,5 @@ resource "aws_instance" "streaming_workstation" {
   tags = {
     Name    = "${var.project_name}"
     Project = var.project_name
-  }
-
-  # Wait for instance to be ready before attaching volume
-  depends_on = [aws_ebs_volume.data]
-}
-
-# Attach the data volume to the instance
-resource "aws_volume_attachment" "data" {
-  device_name = "/dev/sdf"
-  volume_id   = aws_ebs_volume.data.id
-  instance_id = aws_instance.streaming_workstation.id
-
-  # Don't force detach - allow clean shutdown
-  force_detach = false
-}
-
-# Null resource to handle data volume deletion based on variable
-resource "null_resource" "data_volume_lifecycle" {
-  triggers = {
-    delete_data_volume = var.delete_data_volume
-    volume_id          = aws_ebs_volume.data.id
   }
 }

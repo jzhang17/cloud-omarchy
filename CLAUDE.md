@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Terraform project for deploying a GPU Linux streaming workstation on AWS with WireGuard VPN. Designed for streaming a desktop environment (Omarchy) via Sunshine/Moonlight over a secure VPN tunnel.
+Terraform project for deploying an Omarchy (Arch Linux + Hyprland) GPU streaming workstation on AWS. Stream your desktop via Sunshine/Moonlight over a WireGuard VPN tunnel.
 
 ## Quick Start
 
@@ -37,9 +37,6 @@ Terraform project for deploying a GPU Linux streaming workstation on AWS with Wi
 # Terminate instance completely (slow, ~5 min)
 DESTROY=true ./down.sh
 
-# Delete everything including data volume
-TF_VAR_delete_data_volume=true ./down.sh
-
 # Create EBS snapshot backup
 ./backup.sh
 ```
@@ -58,26 +55,24 @@ terraform destroy -auto-approve
 |-------|---------|---------|-------|
 | Running | ~$0.53/hr | ~$19/mo | ~$0.55/hr |
 | Stopped | $0 | ~$19/mo | ~$19/mo |
-| Destroyed | $0 | $0* | $0 |
-
-*Data volume preserved unless `TF_VAR_delete_data_volume=true`
+| Destroyed | $0 | $0 | $0 |
 
 ## Architecture
 
 **Infrastructure (us-west-2):**
 - EC2 g4dn.xlarge (4 vCPU, 16GB RAM, T4 GPU)
-- 40GB gp3 root volume
-- 200GB gp3 data volume (persistent)
+- 200GB gp3 root volume
+- Arch Linux with NVIDIA drivers
 - Security group: SSH from deployer IP, WireGuard UDP 51820 from anywhere
 
-**Data Persistence:**
-- Data volume mounted at `/mnt/data`
-- `/home/ubuntu` bind-mounted from `/mnt/data/home`
-- Survives instance stop/start and rebuilds
+**Software Stack:**
+- Omarchy (DHH's Arch Linux + Hyprland setup)
+- Sunshine streaming server
+- WireGuard VPN server
 
 **Networking:**
 - WireGuard VPN server auto-configured on boot
-- Client config at `/home/ubuntu/wg0-client.conf`
+- Client config at `/home/arch/wg0-client.conf`
 - Streaming ports only accessible via VPN tunnel
 - Public IP changes on each start - update WireGuard client config
 
@@ -88,25 +83,22 @@ terraform destroy -auto-approve
 | `main.tf` | AWS provider, EC2, security group, EBS resources |
 | `variables.tf` | Input variables (region, instance type, etc.) |
 | `outputs.tf` | Terraform outputs |
-| `user_data.sh` | Cloud-init: volume setup, WireGuard, fstab |
+| `user_data.sh` | Cloud-init: Arch packages, WireGuard, Sunshine, Hyprland |
 | `up.sh` | Start or deploy instance |
 | `down.sh` | Stop or destroy instance |
 | `status.sh` | Show instance state and billing |
 | `connect.sh` | SSM session helper |
 | `backup.sh` | Create EBS snapshot |
-| `auto-deploy.sh` | Quota polling deployment (for new accounts) |
 
-## Streaming Setup (TODO)
+## First-Time Setup
 
-Once instance is running:
-1. Connect WireGuard on your laptop
-2. SSH/SSM to instance and install Sunshine
-3. Configure Sunshine streaming server
-4. Connect with Moonlight client to VPN IP (10.200.200.1)
+After deploying with `./up.sh`:
 
-## Roadmap
+1. Connect to instance: `./connect.sh`
+2. Install Omarchy: `~/install-omarchy.sh`
+3. Start streaming: `~/start-streaming.sh`
 
-- [ ] Auto-install Sunshine streaming server
-- [ ] Auto-install Omarchy desktop environment
-- [ ] One-click deployment script
-- [ ] Elastic IP for stable WireGuard endpoint
+On your laptop:
+1. Fetch WireGuard config: `./connect.sh wg`
+2. Import config to WireGuard client
+3. Connect with Moonlight to `10.200.200.1`
