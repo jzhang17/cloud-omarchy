@@ -26,7 +26,7 @@ pacman-key --populate archlinux
 # Update system
 pacman -Syu --noconfirm
 
-# Install essential packages
+# Install base packages first (needed for AUR)
 pacman -S --noconfirm --needed \
     base-devel \
     git \
@@ -35,20 +35,39 @@ pacman -S --noconfirm --needed \
     vim \
     wireguard-tools \
     qrencode \
-    nvidia \
-    nvidia-utils \
-    nvidia-settings \
-    linux-headers \
-    dkms
+    linux-headers
 
-# Install SSM agent for AWS
+# ============================================
+# PART 2: Install yay (AUR helper)
+# ============================================
+echo "=== Installing yay AUR helper ==="
+
+cd /tmp
+sudo -u $DEFAULT_USER git clone https://aur.archlinux.org/yay-bin.git
+cd yay-bin
+sudo -u $DEFAULT_USER makepkg -si --noconfirm
+cd /
+rm -rf /tmp/yay-bin
+
+# ============================================
+# PART 3: Install SSM Agent from AUR
+# ============================================
 echo "=== Installing AWS SSM Agent ==="
-pacman -S --noconfirm --needed amazon-ssm-agent
+
+sudo -u $DEFAULT_USER yay -S --noconfirm amazon-ssm-agent-bin
 systemctl enable amazon-ssm-agent
 systemctl start amazon-ssm-agent
 
 # ============================================
-# PART 2: WireGuard Server Configuration
+# PART 4: Install NVIDIA drivers
+# ============================================
+echo "=== Installing NVIDIA drivers ==="
+
+# Install NVIDIA drivers (use dkms for compatibility)
+pacman -S --noconfirm --needed nvidia-dkms nvidia-utils nvidia-settings
+
+# ============================================
+# PART 5: WireGuard Server Configuration
 # ============================================
 echo "=== Configuring WireGuard server ==="
 
@@ -95,7 +114,7 @@ EOF
 chmod 600 "$WG_DIR/wg0.conf"
 
 # ============================================
-# PART 3: Client Configuration
+# PART 6: Client Configuration
 # ============================================
 echo "=== Generating client config ==="
 
@@ -117,7 +136,7 @@ chown $DEFAULT_USER:$DEFAULT_USER "$CLIENT_CONFIG"
 chmod 600 "$CLIENT_CONFIG"
 
 # ============================================
-# PART 4: Enable IP Forwarding and Start WireGuard
+# PART 7: Enable IP Forwarding and Start WireGuard
 # ============================================
 echo "=== Enabling IP forwarding ==="
 
@@ -132,74 +151,11 @@ systemctl enable wg-quick@wg0
 systemctl start wg-quick@wg0
 
 # ============================================
-# PART 5: Install Omarchy
-# ============================================
-echo "=== Setting up Omarchy installer ==="
-
-# Create setup script for the arch user to run
-cat > "$USER_HOME/install-omarchy.sh" << 'OMARCHY_SCRIPT'
-#!/bin/bash
-set -e
-
-echo "Installing Omarchy..."
-
-# Run the Omarchy bare installer (without extra apps)
-# Using bare mode for cloud - no Spotify, OBS, etc.
-wget -qO- https://omarchy.org/install-bare | bash
-
-echo "Omarchy installation complete!"
-OMARCHY_SCRIPT
-
-chmod +x "$USER_HOME/install-omarchy.sh"
-chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/install-omarchy.sh"
-
-# Create a first-login script
-cat > "$USER_HOME/.bash_profile" << 'PROFILE'
-# First login Omarchy setup
-if [ ! -f "$HOME/.omarchy-installed" ]; then
-    echo "=========================================="
-    echo "Omarchy is ready to install!"
-    echo "=========================================="
-    echo ""
-    echo "Run: ~/install-omarchy.sh"
-    echo ""
-    echo "Or for full install with apps:"
-    echo "  wget -qO- https://omarchy.org/install | bash"
-    echo ""
-fi
-
-# Source .bashrc if it exists
-[[ -f ~/.bashrc ]] && . ~/.bashrc
-PROFILE
-
-chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/.bash_profile"
-
-# ============================================
-# PART 6: Install Sunshine for Streaming
+# PART 8: Install Sunshine for Streaming
 # ============================================
 echo "=== Installing Sunshine streaming server ==="
 
-# Install yay AUR helper if not present
-if ! command -v yay &> /dev/null; then
-    echo "Installing yay AUR helper..."
-    cd /tmp
-    sudo -u $DEFAULT_USER git clone https://aur.archlinux.org/yay.git
-    cd yay
-    sudo -u $DEFAULT_USER makepkg -si --noconfirm
-    cd ..
-    rm -rf yay
-fi
-
-# Install sunshine
 sudo -u $DEFAULT_USER yay -S --noconfirm sunshine
-
-# Configure sunshine for headless operation
-mkdir -p /etc/sunshine
-cat > /etc/sunshine/sunshine.conf << EOF
-# Sunshine configuration for headless cloud streaming
-origin_web_ui_allowed = wan
-min_log_level = info
-EOF
 
 # Set capabilities for Sunshine
 setcap cap_sys_admin+p $(which sunshine) || true
@@ -225,94 +181,28 @@ systemctl daemon-reload
 systemctl enable sunshine
 
 # ============================================
-# PART 7: Configure Hyprland for Headless
+# PART 9: Setup Omarchy installer
 # ============================================
-echo "=== Setting up Hyprland headless configuration ==="
+echo "=== Setting up Omarchy installer ==="
 
-# Create Hyprland config directory
-HYPRLAND_CONFIG="$USER_HOME/.config/hypr"
-mkdir -p "$HYPRLAND_CONFIG"
-
-# Create a headless Hyprland config
-cat > "$HYPRLAND_CONFIG/hyprland-headless.conf" << 'HYPRCONF'
-# Hyprland headless configuration for cloud streaming
-# This creates a virtual display for Sunshine
-
-# Create a headless monitor
-monitor=HEADLESS-1,1920x1080@60,0x0,1
-
-# Set wallpaper
-exec-once = hyprpaper
-
-# Start sunshine on launch
-exec-once = sunshine
-
-# Basic input config
-input {
-    kb_layout = us
-    follow_mouse = 1
-    sensitivity = 0
-}
-
-# General settings
-general {
-    gaps_in = 5
-    gaps_out = 10
-    border_size = 2
-    col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
-    col.inactive_border = rgba(595959aa)
-    layout = dwindle
-}
-
-# Decoration
-decoration {
-    rounding = 10
-    blur {
-        enabled = true
-        size = 3
-        passes = 1
-    }
-    drop_shadow = yes
-    shadow_range = 4
-    shadow_render_power = 3
-    col.shadow = rgba(1a1a1aee)
-}
-HYPRCONF
-
-chown -R $DEFAULT_USER:$DEFAULT_USER "$HYPRLAND_CONFIG"
-
-# ============================================
-# PART 8: Create startup script
-# ============================================
-echo "=== Creating startup scripts ==="
-
-# Script to start headless streaming
-cat > "$USER_HOME/start-streaming.sh" << 'STARTSCRIPT'
+cat > "$USER_HOME/install-omarchy.sh" << 'OMARCHY_SCRIPT'
 #!/bin/bash
-# Start Hyprland in headless mode for streaming
+set -e
 
-export WLR_BACKENDS=headless
-export WLR_LIBINPUT_NO_DEVICES=1
-export WAYLAND_DISPLAY=wayland-1
+echo "Installing Omarchy..."
 
-# Start Hyprland with headless config
-Hyprland -c ~/.config/hypr/hyprland-headless.conf &
+# Run the Omarchy bare installer (without extra apps)
+wget -qO- https://omarchy.org/install-bare | bash
 
-# Wait for Hyprland to start
-sleep 3
+touch "$HOME/.omarchy-installed"
+echo "Omarchy installation complete!"
+OMARCHY_SCRIPT
 
-# Create virtual display
-hyprctl output create headless HEADLESS-1
-
-echo "Headless streaming started!"
-echo "Connect via Moonlight to: $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)"
-STARTSCRIPT
-
-chmod +x "$USER_HOME/start-streaming.sh"
-chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/start-streaming.sh"
+chmod +x "$USER_HOME/install-omarchy.sh"
+chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/install-omarchy.sh"
 
 # ============================================
-# PART 9: Summary
+# PART 10: Summary
 # ============================================
 echo ""
 echo "=========================================="
@@ -323,15 +213,13 @@ echo "Server Public IP: $SERVER_PUBLIC_IP"
 echo "WireGuard Port: $WG_PORT"
 echo ""
 echo "Next steps:"
-echo "1. Connect to instance: ./connect.sh"
+echo "1. Connect via SSM: aws ssm start-session --target <instance-id>"
 echo "2. Install Omarchy: ~/install-omarchy.sh"
-echo "3. Start streaming: ~/start-streaming.sh"
 echo ""
 echo "WireGuard config: $USER_HOME/wg0-client.conf"
 echo ""
 echo "=========================================="
 
-# Save summary
 cat > "$USER_HOME/cloud-omarchy-info.txt" << EOF
 Omarchy Cloud Streaming Setup
 ==============================
@@ -343,10 +231,9 @@ VPN Network:
   Client IP: $WG_CLIENT_IP
 
 Setup Steps:
-1. Connect via SSM or WireGuard
+1. Connect via SSM
 2. Run ~/install-omarchy.sh to install Omarchy
-3. Run ~/start-streaming.sh to start headless streaming
-4. Connect with Moonlight to $WG_SERVER_IP
+3. Connect with Moonlight to $WG_SERVER_IP
 EOF
 
 chown $DEFAULT_USER:$DEFAULT_USER "$USER_HOME/cloud-omarchy-info.txt"
