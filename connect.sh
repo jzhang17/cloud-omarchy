@@ -4,48 +4,48 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-STATE_FILE="$SCRIPT_DIR/.state.json"
+# Get region from terraform variables
+REGION=$(awk '/variable "aws_region"/,/}/' variables.tf | grep default | sed 's/.*= *"\([^"]*\)".*/\1/')
 
-if [ ! -f "$STATE_FILE" ]; then
-    echo "ERROR: No state file found at $STATE_FILE"
-    echo "Run ./up.sh or ./auto-deploy.sh first to deploy the instance."
+# Get instance ID from terraform state
+if [ ! -f "terraform.tfstate" ]; then
+    echo "ERROR: No terraform.tfstate found"
+    echo "Run ./up.sh first to deploy the instance."
     exit 1
 fi
 
-INSTANCE_ID=$(jq -r '.instance_id' "$STATE_FILE")
-REGION=$(jq -r '.region' "$STATE_FILE")
-PUBLIC_IP=$(jq -r '.public_ip' "$STATE_FILE")
+INSTANCE_ID=$(terraform output -raw instance_id 2>/dev/null || echo "")
 
-if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" == "null" ]; then
-    echo "ERROR: No instance_id found in state file"
+if [ -z "$INSTANCE_ID" ]; then
+    echo "ERROR: No instance found in terraform state"
+    echo "Run ./up.sh to deploy."
     exit 1
 fi
+
+# Get current instance info from AWS
+INSTANCE_INFO=$(aws ec2 describe-instances \
+    --region "$REGION" \
+    --instance-ids "$INSTANCE_ID" \
+    --query 'Reservations[0].Instances[0].{State:State.Name,IP:PublicIpAddress}' \
+    --output json 2>/dev/null || echo '{"State":"not-found"}')
+
+STATE=$(echo "$INSTANCE_INFO" | jq -r '.State')
+PUBLIC_IP=$(echo "$INSTANCE_INFO" | jq -r '.IP // "none"')
 
 echo "=========================================="
 echo "GPU Streaming Workstation - Connect"
 echo "=========================================="
 echo ""
-echo "Instance ID: $INSTANCE_ID"
-echo "Public IP: $PUBLIC_IP"
-echo "Region: $REGION"
-echo ""
-
-# Check instance state
-STATE=$(aws ec2 describe-instances \
-    --region "$REGION" \
-    --instance-ids "$INSTANCE_ID" \
-    --query 'Reservations[0].Instances[0].State.Name' \
-    --output text 2>/dev/null || echo "unknown")
-
-echo "Instance State: $STATE"
+echo "Instance: $INSTANCE_ID"
+echo "Region:   $REGION"
+echo "State:    $STATE"
+echo "IP:       $PUBLIC_IP"
 echo ""
 
 if [ "$STATE" != "running" ]; then
-    echo "Instance is not running. Current state: $STATE"
+    echo "Instance is not running."
     if [ "$STATE" == "stopped" ]; then
-        echo ""
-        echo "To start the instance:"
-        echo "  aws ec2 start-instances --instance-ids $INSTANCE_ID --region $REGION"
+        echo "Run ./up.sh to start it."
     fi
     exit 1
 fi
@@ -54,22 +54,19 @@ fi
 ACTION="${1:-ssh}"
 
 case "$ACTION" in
-    ssh|connect)
-        echo "Connecting via SSM Session Manager..."
+    ssh|connect|"")
+        echo "Connecting via SSM..."
         echo ""
         aws ssm start-session --target "$INSTANCE_ID" --region "$REGION"
         ;;
     wg|wireguard)
         echo "Fetching WireGuard client config..."
         echo ""
-        # Use SSM to cat the file
         aws ssm start-session \
             --target "$INSTANCE_ID" \
             --region "$REGION" \
-            --document-name AWS-StartNonInteractiveCommand \
-            --parameters '{"command":["cat /home/ubuntu/wg0-client.conf"]}' 2>/dev/null || \
-        echo "Run: aws ssm start-session --target $INSTANCE_ID --region $REGION"
-        echo "Then: cat /home/ubuntu/wg0-client.conf"
+            --document-name AWS-StartInteractiveCommand \
+            --parameters 'command="sudo cat /home/ubuntu/wg0-client.conf"'
         ;;
     *)
         echo "Usage: $0 [ssh|wg]"
