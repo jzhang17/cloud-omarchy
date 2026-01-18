@@ -4,51 +4,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Get region from terraform variables
-REGION=$(awk '/variable "aws_region"/,/}/' variables.tf | grep default | sed 's/.*= *"\([^"]*\)".*/\1/')
+REGION="us-west-2"
+INSTANCE_NAME="omarchy-cloud"
 
-# Get instance ID from terraform state
-if [ ! -f "terraform.tfstate" ]; then
-    echo "ERROR: No terraform.tfstate found"
-    echo "Run ./up.sh first to deploy the instance."
+# Find instance by name tag
+INSTANCE_ID=$(aws ec2 describe-instances \
+    --region "$REGION" \
+    --filters "Name=tag:Name,Values=$INSTANCE_NAME" "Name=instance-state-name,Values=running" \
+    --query 'Reservations[0].Instances[0].InstanceId' \
+    --output text 2>/dev/null || echo "None")
+
+if [ "$INSTANCE_ID" = "None" ] || [ -z "$INSTANCE_ID" ]; then
+    echo "No running instance found."
+    echo "Run ./start.sh first."
     exit 1
 fi
 
-INSTANCE_ID=$(terraform output -raw instance_id 2>/dev/null || echo "")
-
-if [ -z "$INSTANCE_ID" ]; then
-    echo "ERROR: No instance found in terraform state"
-    echo "Run ./up.sh to deploy."
-    exit 1
-fi
-
-# Get current instance info from AWS
-INSTANCE_INFO=$(aws ec2 describe-instances \
+# Get instance info
+PUBLIC_IP=$(aws ec2 describe-instances \
     --region "$REGION" \
     --instance-ids "$INSTANCE_ID" \
-    --query 'Reservations[0].Instances[0].{State:State.Name,IP:PublicIpAddress}' \
-    --output json 2>/dev/null || echo '{"State":"not-found"}')
-
-STATE=$(echo "$INSTANCE_INFO" | jq -r '.State')
-PUBLIC_IP=$(echo "$INSTANCE_INFO" | jq -r '.IP // "none"')
+    --query 'Reservations[0].Instances[0].PublicIpAddress' \
+    --output text)
 
 echo "=========================================="
-echo "GPU Streaming Workstation - Connect"
+echo "Omarchy Cloud - Connect"
 echo "=========================================="
 echo ""
 echo "Instance: $INSTANCE_ID"
 echo "Region:   $REGION"
-echo "State:    $STATE"
 echo "IP:       $PUBLIC_IP"
 echo ""
-
-if [ "$STATE" != "running" ]; then
-    echo "Instance is not running."
-    if [ "$STATE" == "stopped" ]; then
-        echo "Run ./up.sh to start it."
-    fi
-    exit 1
-fi
 
 # Parse command line args
 ACTION="${1:-ssh}"
@@ -62,11 +48,20 @@ case "$ACTION" in
     wg|wireguard)
         echo "Fetching WireGuard client config..."
         echo ""
-        aws ssm start-session \
-            --target "$INSTANCE_ID" \
+        CMD_ID=$(aws ssm send-command \
             --region "$REGION" \
-            --document-name AWS-StartInteractiveCommand \
-            --parameters 'command="sudo cat /home/arch/wg0-client.conf"'
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=["cat /home/arch/wg0-client.conf"]' \
+            --query 'Command.CommandId' \
+            --output text)
+        sleep 3
+        aws ssm get-command-invocation \
+            --region "$REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$INSTANCE_ID" \
+            --query 'StandardOutputContent' \
+            --output text
         ;;
     *)
         echo "Usage: $0 [ssh|wg]"
