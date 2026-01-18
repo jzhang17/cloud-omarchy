@@ -17,5 +17,14 @@ terraform.tfvars
 # WireGuard configs (contain private keys)
 wg0-client.conf
 
+# Runtime files
+.auto-deploy.log
+.state.json
+
 # OS files
 .DS_Store
+
+# Editor files
+*.swp
+*.swo
+*~

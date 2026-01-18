@@ -4,86 +4,91 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Get region from terraform variables
+REGION=$(awk '/variable "aws_region"/,/}/' variables.tf | grep default | sed 's/.*= *"\([^"]*\)".*/\1/')
+
 echo "=========================================="
-echo "GPU Streaming Workstation - Destroy"
+echo "GPU Streaming Workstation - Stop"
 echo "=========================================="
 echo ""
 
-# Check if terraform state exists
+# Check for full destroy flag
+if [ "${DESTROY:-}" = "true" ] || [ "${TF_VAR_delete_data_volume:-}" = "true" ]; then
+    echo "DESTROY mode - will terminate instance and delete all resources"
+    echo ""
+
+    if [ "${TF_VAR_delete_data_volume:-}" = "true" ]; then
+        echo "WARNING: Data volume will also be DELETED!"
+        read -p "Type 'DELETE' to confirm: " confirm
+        if [ "$confirm" != "DELETE" ]; then
+            echo "Cancelled."
+            exit 0
+        fi
+        terraform destroy -auto-approve
+    else
+        # Just destroy instance, keep data volume
+        terraform destroy -auto-approve
+    fi
+    echo ""
+    echo "Destroy complete."
+    exit 0
+fi
+
+# Normal operation: just stop the instance (fast!)
 if [ ! -f "terraform.tfstate" ]; then
-    echo "No terraform.tfstate found. Nothing to destroy."
+    echo "No terraform.tfstate found. Nothing to stop."
     exit 0
 fi
 
-# Check if data volume deletion is requested
-DELETE_DATA_VOLUME="${TF_VAR_delete_data_volume:-false}"
+INSTANCE_ID=$(terraform output -raw instance_id 2>/dev/null || echo "")
 
-if [ "$DELETE_DATA_VOLUME" = "true" ]; then
-    echo "WARNING: delete_data_volume=true"
-    echo "The persistent data volume WILL BE DELETED!"
-    echo ""
-    read -p "Are you absolutely sure? Type 'DELETE' to confirm: " confirm
-    if [ "$confirm" != "DELETE" ]; then
-        echo "Destruction cancelled."
-        exit 0
-    fi
-else
-    echo "The persistent data volume will be PRESERVED."
-    echo "To also delete the data volume, run:"
-    echo "  TF_VAR_delete_data_volume=true ./down.sh"
-    echo ""
-fi
-
-# Get current state info before destroying
-if terraform state list | grep -q "aws_ebs_volume.data"; then
-    DATA_VOLUME_ID=$(terraform output -raw data_volume_id 2>/dev/null || echo "unknown")
-    echo "Data Volume ID: $DATA_VOLUME_ID"
-fi
-
-echo ""
-read -p "Do you want to destroy the infrastructure? (yes/no): " confirm
-if [ "$confirm" != "yes" ]; then
-    echo "Destruction cancelled."
+if [ -z "$INSTANCE_ID" ]; then
+    echo "No instance found in terraform state."
     exit 0
 fi
 
-echo ""
+# Check instance state
+STATE=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --region "$REGION" \
+    --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo "not-found")
 
-if [ "$DELETE_DATA_VOLUME" = "true" ]; then
-    # Full destroy including data volume
-    echo "Destroying all resources including data volume..."
-    terraform destroy -auto-approve
-else
-    # Destroy everything except the data volume
-    echo "Destroying instance and security group (preserving data volume)..."
-
-    # First, remove the volume attachment
-    if terraform state list | grep -q "aws_volume_attachment.data"; then
-        terraform destroy -target=aws_volume_attachment.data -auto-approve
-    fi
-
-    # Then destroy the instance
-    if terraform state list | grep -q "aws_instance.streaming_workstation"; then
-        terraform destroy -target=aws_instance.streaming_workstation -auto-approve
-    fi
-
-    # Then the security group
-    if terraform state list | grep -q "aws_security_group.streaming_workstation"; then
-        terraform destroy -target=aws_security_group.streaming_workstation -auto-approve
-    fi
-
+if [ "$STATE" = "stopped" ]; then
+    echo "Instance $INSTANCE_ID is already stopped."
     echo ""
-    echo "=========================================="
-    echo "Instance destroyed. Data volume preserved."
-    echo "=========================================="
+    echo "Ongoing charges: ~\$16/mo for 200GB data volume"
     echo ""
-    echo "Data Volume ID: $DATA_VOLUME_ID"
+    echo "To fully destroy (stop all charges except data volume):"
+    echo "  DESTROY=true ./down.sh"
     echo ""
-    echo "To redeploy with the same data volume, just run ./up.sh"
-    echo ""
-    echo "To completely remove everything including data:"
+    echo "To delete everything including data:"
     echo "  TF_VAR_delete_data_volume=true ./down.sh"
-    echo ""
+    exit 0
 fi
 
-echo "Destruction complete."
+if [ "$STATE" = "not-found" ] || [ "$STATE" = "terminated" ]; then
+    echo "Instance $INSTANCE_ID not found or already terminated."
+    exit 0
+fi
+
+if [ "$STATE" != "running" ]; then
+    echo "Instance is in state: $STATE (not running)"
+    echo "Waiting for it to settle..."
+    sleep 10
+fi
+
+echo "Stopping instance $INSTANCE_ID..."
+aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --region "$REGION" > /dev/null
+
+echo "Waiting for instance to stop..."
+aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID" --region "$REGION"
+
+echo ""
+echo "=========================================="
+echo "Instance Stopped!"
+echo "=========================================="
+echo ""
+echo "Compute charges: STOPPED"
+echo "Storage charges: ~\$19/mo (40GB root + 200GB data)"
+echo ""
+echo "To restart:  ./up.sh"
+echo "To destroy:  DESTROY=true ./down.sh"
+echo ""
