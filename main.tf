@@ -13,14 +13,14 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Get the latest Ubuntu 22.04 LTS AMI
-data "aws_ami" "ubuntu" {
+# Get the latest Arch Linux AMI
+data "aws_ami" "arch" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical
+  owners      = ["647457786197"] # Arch Linux official
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+    values = ["arch-linux-std-hvm-*.x86_64-ebs"]
   }
 
   filter {
@@ -130,7 +130,7 @@ resource "aws_iam_instance_profile" "streaming_workstation" {
 
 # EC2 Instance
 resource "aws_instance" "streaming_workstation" {
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = data.aws_ami.arch.id
   instance_type          = var.instance_type
   iam_instance_profile   = aws_iam_instance_profile.streaming_workstation.name
   vpc_security_group_ids = [aws_security_group.streaming_workstation.id]

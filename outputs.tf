@@ -30,7 +30,7 @@ output "ssm_session_command" {
 
 output "ssm_scp_wireguard_config" {
   description = "AWS SSM command to fetch WireGuard client config (requires Session Manager plugin)"
-  value       = "aws ssm start-session --target ${aws_instance.streaming_workstation.id} --region ${var.aws_region} --document-name AWS-StartInteractiveCommand --parameters command=\"cat /home/ubuntu/wg0-client.conf\""
+  value       = "aws ssm start-session --target ${aws_instance.streaming_workstation.id} --region ${var.aws_region} --document-name AWS-StartInteractiveCommand --parameters command=\"cat /home/arch/wg0-client.conf\""
 }
 
 output "instance_type_used" {
@@ -45,7 +45,7 @@ output "availability_zone" {
 
 output "ami_id" {
   description = "AMI ID used for the instance"
-  value       = data.aws_ami.ubuntu.id
+  value       = data.aws_ami.arch.id
 }
 
 output "security_group_id" {

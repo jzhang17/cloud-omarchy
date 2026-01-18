@@ -66,7 +66,7 @@ case "$ACTION" in
             --target "$INSTANCE_ID" \
             --region "$REGION" \
             --document-name AWS-StartInteractiveCommand \
-            --parameters 'command="sudo cat /home/ubuntu/wg0-client.conf"'
+            --parameters 'command="sudo cat /home/arch/wg0-client.conf"'
         ;;
     *)
         echo "Usage: $0 [ssh|wg]"
