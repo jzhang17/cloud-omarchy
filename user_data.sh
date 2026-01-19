@@ -204,6 +204,7 @@ cat > "$SUNSHINE_CONFIG_DIR/sunshine.conf" << 'EOF'
 min_log_level = 0
 capture = wlr
 encoder = nvenc
+hevc_mode = 2
 keyboard = enabled
 mouse = enabled
 EOF

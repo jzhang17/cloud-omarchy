@@ -99,9 +99,9 @@ start_hyprland() {
     echo "Starting terminal..."
     run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; hyprctl dispatch exec foot 2>/dev/null || true'" 2
 
-    # Step 10: Ensure Sunshine config is set for Wayland
-    echo "Configuring Sunshine for Wayland..."
-    run_command "cp /home/arch/.config/sunshine/sunshine.conf /home/arch/.config/sunshine/sunshine.conf.bak 2>/dev/null || true; echo -e 'min_log_level = 0\ncapture = wlr\nencoder = nvenc\nkeyboard = enabled\nmouse = enabled' > /home/arch/.config/sunshine/sunshine.conf; chown arch:arch /home/arch/.config/sunshine/sunshine.conf" 2
+    # Step 10: Ensure Sunshine config is set for Wayland with HEVC
+    echo "Configuring Sunshine for Wayland (HEVC)..."
+    run_command "cp /home/arch/.config/sunshine/sunshine.conf /home/arch/.config/sunshine/sunshine.conf.bak 2>/dev/null || true; echo -e 'min_log_level = 0\ncapture = wlr\nencoder = nvenc\nhevc_mode = 2\nkeyboard = enabled\nmouse = enabled' > /home/arch/.config/sunshine/sunshine.conf; chown arch:arch /home/arch/.config/sunshine/sunshine.conf" 2
 
     # Step 11: Find Wayland socket and start Sunshine
     echo "Starting Sunshine streaming server..."
