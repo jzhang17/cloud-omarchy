@@ -44,7 +44,8 @@ pacman -S --noconfirm --needed \
     python-pip \
     python-evdev \
     seatd \
-    foot
+    foot \
+    grim
 
 # ============================================
 # PART 2: Install yay (AUR helper)
@@ -198,14 +199,13 @@ echo "=== Configuring Sunshine for streaming ==="
 SUNSHINE_CONFIG_DIR="$USER_HOME/.config/sunshine"
 mkdir -p "$SUNSHINE_CONFIG_DIR"
 
-# Create Sunshine config for KMS capture with NVENC - default for G5
-# KMS capture enables hardware encoding via NVENC (wlr capture doesn't work with NVENC)
-# For X11 (Xvfb/Openbox), stream.sh will override capture mode
+# Create Sunshine config for wlr capture (Wayland screencopy)
+# Note: KMS capture doesn't work with vkms (empty monitor list)
+# wlr capture works but uses software encoding (NVENC not available with wlr)
 cat > "$SUNSHINE_CONFIG_DIR/sunshine.conf" << 'EOF'
 min_log_level = 0
-capture = kms
-encoder = nvenc
-hevc_mode = 2
+capture = wlr
+encoder = software
 keyboard = enabled
 mouse = enabled
 EOF
@@ -220,6 +220,42 @@ mouse = enabled
 EOF
 
 chown -R $DEFAULT_USER:$DEFAULT_USER "$SUNSHINE_CONFIG_DIR"
+
+# ============================================
+# PART 9b: Configure Hyprland for headless streaming
+# ============================================
+echo "=== Configuring Hyprland for headless streaming ==="
+
+# Create Hyprland config directory
+HYPRLAND_CONFIG_DIR="$USER_HOME/.config/hypr"
+mkdir -p "$HYPRLAND_CONFIG_DIR"
+
+# Create Hyprland config with proper resolution and visible background
+# Resolution MUST be set in config file before Hyprland starts to set DRM framebuffer size
+# 2560x1600 = same 16:10 aspect ratio as MacBook Pro 14" (3024x1964)
+# Default background is nearly black (0xFF111111), so we set a visible color
+cat > "$HYPRLAND_CONFIG_DIR/hyprland.conf" << 'EOF'
+# Monitor configuration for vkms virtual display
+# Resolution must be set here (not via hyprctl) to properly size DRM framebuffer
+monitor = Virtual-1, 2560x1600@60, 0x0, 1
+monitor = , preferred, auto, 1
+
+# Set visible background color (default is nearly black)
+misc {
+    background_color = rgb(285577)
+}
+
+# Window decorations
+general {
+    col.active_border = rgba(33ccffee)
+    col.inactive_border = rgba(595959aa)
+}
+
+# Start a terminal on launch
+exec-once = foot
+EOF
+
+chown -R $DEFAULT_USER:$DEFAULT_USER "$HYPRLAND_CONFIG_DIR"
 
 # ============================================
 # PART 10: Create Input Forwarder Script

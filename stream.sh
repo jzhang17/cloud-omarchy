@@ -90,11 +90,18 @@ start_hyprland() {
     fi
     echo "  Using: /dev/dri/$VKMS_CARD"
 
-    # Step 8: Start Hyprland with vkms (single instance only)
+    # Step 8: Create Hyprland config with resolution BEFORE starting
+    # Resolution must be set in config file to set DRM framebuffer size correctly
+    # 2560x1600 = same 16:10 aspect ratio as MacBook Pro 14" (3024x1964)
+    # Also set visible background color (default is nearly black 0xFF111111)
+    echo "Creating Hyprland config (2560x1600)..."
+    run_command "mkdir -p /home/arch/.config/hypr; echo 'monitor = Virtual-1, 2560x1600@60, 0x0, 1' > /home/arch/.config/hypr/hyprland.conf; echo 'misc { background_color = rgb(285577) }' >> /home/arch/.config/hypr/hyprland.conf; echo 'exec-once = foot' >> /home/arch/.config/hypr/hyprland.conf; chown -R arch:arch /home/arch/.config/hypr" 2
+
+    # Step 9: Start Hyprland with vkms (single instance only)
     echo "Starting Hyprland..."
     run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; export LIBSEAT_BACKEND=seatd; export AQ_DRM_DEVICES=/dev/dri/$VKMS_CARD; nohup hyprland > /tmp/hyprland.log 2>&1 &'" 5
 
-    # Step 9: Wait and verify only one Hyprland is running
+    # Step 10: Wait and verify only one Hyprland is running
     echo "Verifying single instance..."
     HYPR_COUNT=$(run_command "pgrep -c hyprland 2>/dev/null || echo 0" 2)
     HYPR_COUNT=$(echo "$HYPR_COUNT" | tr -d '[:space:]')
@@ -103,26 +110,18 @@ start_hyprland() {
         run_command "pkill -9 hyprland 2>/dev/null || true; pkill -9 Hyprland 2>/dev/null || true; sleep 2; sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; export LIBSEAT_BACKEND=seatd; export AQ_DRM_DEVICES=/dev/dri/$VKMS_CARD; nohup hyprland > /tmp/hyprland.log 2>&1 &'" 5
     fi
 
-    # Step 10: Wait for Hyprland to start and configure monitor
-    # MacBook Pro 14" M1 Pro native resolution: 3024x1964
-    echo "Configuring display (3024x1964 for MBP 14\")..."
-    sleep 2
-    run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; hyprctl keyword monitor Virtual-1,3024x1964@60,0x0,1 2>/dev/null || true'" 3
+    # Step 11: Ensure Sunshine config is set for wlr capture
+    # Note: KMS capture doesn't work with vkms (empty monitor list)
+    # wlr capture uses Wayland screencopy protocol and works with Hyprland
+    # Unfortunately NVENC doesn't work with wlr (frames in CPU memory), so software encoding is used
+    echo "Configuring Sunshine for wlr capture..."
+    run_command "mkdir -p /home/arch/.config/sunshine; echo 'min_log_level = 0' > /home/arch/.config/sunshine/sunshine.conf; echo 'capture = wlr' >> /home/arch/.config/sunshine/sunshine.conf; echo 'encoder = software' >> /home/arch/.config/sunshine/sunshine.conf; echo 'keyboard = enabled' >> /home/arch/.config/sunshine/sunshine.conf; echo 'mouse = enabled' >> /home/arch/.config/sunshine/sunshine.conf; chown -R arch:arch /home/arch/.config/sunshine" 2
 
-    # Step 11: Start a terminal so there's something to see
-    echo "Starting terminal..."
-    run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; hyprctl dispatch exec foot 2>/dev/null || true'" 2
-
-    # Step 12: Ensure Sunshine config is set for KMS capture with NVENC HEVC
-    # Using KMS capture (not wlr) enables hardware encoding via NVENC
-    echo "Configuring Sunshine for KMS capture + NVENC (HEVC)..."
-    run_command "cp /home/arch/.config/sunshine/sunshine.conf /home/arch/.config/sunshine/sunshine.conf.bak 2>/dev/null || true; echo -e 'min_log_level = 0\ncapture = kms\nencoder = nvenc\nhevc_mode = 2\nkeyboard = enabled\nmouse = enabled' > /home/arch/.config/sunshine/sunshine.conf; chown arch:arch /home/arch/.config/sunshine/sunshine.conf" 2
-
-    # Step 13: Find Wayland socket and start Sunshine
+    # Step 12: Start Sunshine streaming server
     echo "Starting Sunshine streaming server..."
     run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; export WAYLAND_DISPLAY=wayland-1; nohup sunshine > /tmp/sunshine.log 2>&1 &'" 4
 
-    # Step 14: Verify services
+    # Step 13: Verify services
     verify_services "hyprland"
 }
 

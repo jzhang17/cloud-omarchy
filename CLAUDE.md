@@ -65,7 +65,8 @@ Omarchy Cloud - A GPU-accelerated Linux streaming workstation on AWS. Stream a f
 │  │  └─────────────┘  └─────────────┘  └────────────┘  │    │
 │  │         ↓              ↓                 ↓         │    │
 │  │  ┌─────────────────────────────────────────────┐   │    │
-│  │  │          NVENC Hardware Encoding            │   │    │
+│  │  │     Software Encoding (x264/x265/libx265)   │   │    │
+│  │  │  (NVENC unavailable - frames in CPU memory) │   │    │
 │  │  └─────────────────────────────────────────────┘   │    │
 │  │                                   ┌────────────┐   │    │
 │  │                                   │  WireGuard │   │    │
@@ -90,10 +91,11 @@ Omarchy Cloud - A GPU-accelerated Linux streaming workstation on AWS. Stream a f
 ```
 
 **G5 Components:**
-- **EC2 g5.xlarge**: NVIDIA A10G GPU with KMS support for native Wayland
+- **EC2 g5.xlarge**: NVIDIA A10G GPU (used for compute, not encoding in this setup)
 - **vkms**: Virtual Kernel Mode Setting - creates a virtual DRM display with connectors for Hyprland
-- **Hyprland**: Wayland compositor (Omarchy's default)
-- **Sunshine (wlr capture)**: Game streaming server using Wayland protocol capture
+- **Hyprland**: Wayland compositor (Omarchy's default) at 2560x1600 resolution
+- **Sunshine (wlr capture)**: Game streaming using Wayland screencopy protocol
+- **Software encoding**: wlr capture puts frames in CPU memory; NVENC requires GPU memory
 - **WireGuard**: Secure VPN tunnel for streaming traffic
 - **Moonlight**: Client app on Mac for receiving stream
 
@@ -101,6 +103,11 @@ Omarchy Cloud - A GPU-accelerated Linux streaming workstation on AWS. Stream a f
 - G4dn (Tesla T4) doesn't expose DRM connectors, so Hyprland can't find a display
 - G5 (A10G) supports KMS and with vkms module provides virtual DRM connectors
 - vkms creates a virtual display that Hyprland can use as its output
+
+**Current limitation:** NVENC hardware encoding is not available because:
+1. KMS capture doesn't recognize vkms displays (empty monitor list)
+2. wlr capture works but puts frames in CPU memory, not GPU memory
+3. Future: Could potentially use DMA-BUF to enable NVENC with wlr capture
 
 ### X11 Fallback Mode
 
@@ -342,6 +349,40 @@ Datacenter GPUs like NVIDIA A10G are classified as "3D Controllers" rather than 
 
 The **vkms (Virtual Kernel Mode Setting)** kernel module creates a virtual DRM device with a connector (Virtual-1) that Hyprland can use as its output. Sunshine then captures the compositor's output via the Wayland protocol (wlr capture mode).
 
+### Resolution Configuration (Critical!)
+
+**Resolution MUST be set in Hyprland config file BEFORE Hyprland starts.** Using `hyprctl keyword monitor` after startup only changes Hyprland's virtual resolution, not the underlying DRM framebuffer size.
+
+The vkms driver supports many resolutions including:
+- 4096x2160 (4K)
+- 2560x1600 (16:10, same as MacBook Pro 14")
+- 1920x1080 (1080p)
+- 1920x1200 (16:10)
+
+The default is 1024x768. To change it, create `~/.config/hypr/hyprland.conf`:
+```bash
+monitor = Virtual-1, 2560x1600@60, 0x0, 1
+```
+
+### Background Color
+
+Hyprland's default background color is nearly black (0xFF111111). For a visible desktop, set:
+```bash
+misc {
+    background_color = rgb(285577)  # Blue background
+}
+```
+
+### Capture Mode Limitations
+
+| Capture | Works with vkms? | NVENC? | Notes |
+|---------|------------------|--------|-------|
+| `kms` | ❌ No | N/A | Empty monitor list - vkms not recognized |
+| `wlr` | ✅ Yes | ❌ No | Works! But uses software encoding |
+| `x11` | N/A | ❌ No | Only for Xvfb fallback mode |
+
+**Why no NVENC with wlr capture?** The frames are captured via Wayland screencopy protocol into CPU memory. NVENC requires frames in GPU memory. A GPU memory copy would be needed, which Sunshine doesn't do for wlr capture.
+
 ### Key Environment Variables for Hyprland
 
 ```bash
@@ -356,6 +397,14 @@ export AQ_DRM_DEVICES=/dev/dri/card1  # Point to vkms device
 export XDG_RUNTIME_DIR=/run/user/1000
 export WAYLAND_DISPLAY=wayland-1
 ```
+
+### Multiple Hyprland Instance Prevention
+
+Hyprland can spawn multiple instances if previous ones didn't clean up properly. The `stream.sh` script handles this by:
+1. Killing all hyprland processes including `hyprland-welcome`
+2. Cleaning up `/run/user/1000/hypr/` directory
+3. Removing stale Wayland sockets
+4. Restarting seatd to clear stuck seat clients
 
 ## Notes
 
