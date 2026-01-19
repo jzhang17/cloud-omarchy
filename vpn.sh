@@ -62,6 +62,10 @@ case "$ACTION" in
             exit 0
         fi
 
+        # Clean up any stale WireGuard state
+        sudo wg-quick down wg0 2>/dev/null || true
+        sudo rm -f /var/run/wireguard/wg0.name 2>/dev/null || true
+
         echo "Connecting to VPN..."
         sudo wg-quick up wg0
         echo ""
