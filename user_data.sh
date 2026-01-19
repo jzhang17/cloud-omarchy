@@ -42,7 +42,9 @@ pacman -S --noconfirm --needed \
     openbox \
     xterm \
     python-pip \
-    python-evdev
+    python-evdev \
+    seatd \
+    foot
 
 # ============================================
 # PART 2: Install yay (AUR helper)
@@ -188,16 +190,26 @@ systemctl daemon-reload
 systemctl enable sunshine
 
 # ============================================
-# PART 9: Configure Sunshine for X11 streaming
+# PART 9: Configure Sunshine for streaming
 # ============================================
-echo "=== Configuring Sunshine for X11 capture ==="
+echo "=== Configuring Sunshine for streaming ==="
 
 # Create Sunshine config directory
 SUNSHINE_CONFIG_DIR="$USER_HOME/.config/sunshine"
 mkdir -p "$SUNSHINE_CONFIG_DIR"
 
-# Create Sunshine config optimized for Xvfb
+# Create Sunshine config for Wayland (Hyprland) - default for G5
+# For X11 (Xvfb/Openbox), stream.sh will override capture mode
 cat > "$SUNSHINE_CONFIG_DIR/sunshine.conf" << 'EOF'
+min_log_level = 0
+capture = wlr
+encoder = nvenc
+keyboard = enabled
+mouse = enabled
+EOF
+
+# Also create an X11 config variant for fallback
+cat > "$SUNSHINE_CONFIG_DIR/sunshine-x11.conf" << 'EOF'
 min_log_level = 0
 capture = x11
 output_name = 0
@@ -277,20 +289,27 @@ INPUTEOF
 chmod +x /usr/local/bin/input-forwarder
 
 # ============================================
-# PART 11: Set up uinput permissions
+# PART 11: Set up uinput and vkms permissions
 # ============================================
-echo "=== Setting up uinput permissions ==="
+echo "=== Setting up uinput and vkms permissions ==="
 
-# Add arch user to input group
-usermod -aG input,video $DEFAULT_USER
+# Add arch user to input, video, and seat groups
+usermod -aG input,video,seat $DEFAULT_USER
 
 # Create udev rule for uinput permissions
 cat > /etc/udev/rules.d/99-uinput.rules << 'EOF'
 KERNEL=="uinput", MODE="0666", GROUP="input"
 EOF
 
-# Load uinput module on boot
-echo "uinput" > /etc/modules-load.d/uinput.conf
+# Load uinput and vkms modules on boot
+# vkms provides virtual DRM display for Hyprland on headless GPUs
+cat > /etc/modules-load.d/omarchy-cloud.conf << 'EOF'
+uinput
+vkms
+EOF
+
+# Enable seatd for Wayland compositor seat management
+systemctl enable seatd
 
 # ============================================
 # PART 12: Setup Omarchy installer
