@@ -63,9 +63,9 @@ case "$ACTION" in
         # Step 2: Disable NVIDIA EGL GBM (causes X server crashes with Xvfb)
         run_command "mv /usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json /usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json.disabled 2>/dev/null || true" 2
 
-        # Step 3: Kill any existing X/Sunshine/WM processes
+        # Step 3: Kill any existing X/Sunshine/WM/input-forwarder processes
         echo "Cleaning up old processes..."
-        run_command "pkill -9 Xvfb 2>/dev/null || true; pkill -9 sunshine 2>/dev/null || true; pkill -9 openbox 2>/dev/null || true" 2
+        run_command "pkill -9 Xvfb 2>/dev/null || true; pkill -9 sunshine 2>/dev/null || true; pkill -9 openbox 2>/dev/null || true; pkill -f input-forwarder 2>/dev/null || true; pkill -f input_forward 2>/dev/null || true" 2
         sleep 1
 
         # Step 4: Set up XDG runtime directory
@@ -82,11 +82,19 @@ case "$ACTION" in
         # Step 7: Start a terminal
         run_command "sudo -u arch bash -c 'export DISPLAY=:0; xterm -geometry 100x30+50+50 &' 2>/dev/null || true" 2
 
-        # Step 8: Start Sunshine with proper environment
+        # Step 8: Ensure Sunshine config is correct for X11 capture
+        echo "Configuring Sunshine for X11..."
+        run_command "mkdir -p /home/arch/.config/sunshine; echo -e 'min_log_level = 0\ncapture = x11\noutput_name = 0\nkeyboard = enabled\nmouse = enabled' > /home/arch/.config/sunshine/sunshine.conf; chown -R arch:arch /home/arch/.config/sunshine" 2
+
+        # Step 9: Start Sunshine with proper environment
         echo "Starting Sunshine streaming server..."
         run_command "sudo -u arch bash -c 'export DISPLAY=:0; export XDG_RUNTIME_DIR=/run/user/1000; sunshine > /tmp/sunshine.log 2>&1 &'" 4
 
-        # Step 9: Verify services
+        # Step 10: Start input forwarder (bridges Sunshine uinput to X11)
+        echo "Starting input forwarder..."
+        run_command "nohup /usr/local/bin/input-forwarder > /tmp/input-forwarder.log 2>&1 & disown; sleep 1; pgrep -f input-forwarder > /dev/null || nohup python3 /tmp/input_forward.py > /tmp/input-forwarder.log 2>&1 &" 3
+
+        # Step 11: Verify services
         echo ""
         echo "Checking services..."
         sleep 2
@@ -94,13 +102,15 @@ case "$ACTION" in
         XVFB_STATUS=$(run_command "pgrep Xvfb > /dev/null && echo RUNNING || echo STOPPED" 2)
         SUNSHINE_STATUS=$(run_command "pgrep sunshine > /dev/null && echo RUNNING || echo STOPPED" 2)
         OPENBOX_STATUS=$(run_command "pgrep openbox > /dev/null && echo RUNNING || echo STOPPED" 2)
+        INPUT_STATUS=$(run_command "pgrep -f 'input-forwarder|input_forward' > /dev/null && echo RUNNING || echo STOPPED" 2)
 
-        echo "  Xvfb:     $XVFB_STATUS"
-        echo "  Openbox:  $OPENBOX_STATUS"
-        echo "  Sunshine: $SUNSHINE_STATUS"
+        echo "  Xvfb:           $XVFB_STATUS"
+        echo "  Openbox:        $OPENBOX_STATUS"
+        echo "  Sunshine:       $SUNSHINE_STATUS"
+        echo "  Input Forwarder: $INPUT_STATUS"
         echo ""
 
-        if [[ "$XVFB_STATUS" == *"RUNNING"* ]] && [[ "$SUNSHINE_STATUS" == *"RUNNING"* ]]; then
+        if [[ "$XVFB_STATUS" == *"RUNNING"* ]] && [[ "$SUNSHINE_STATUS" == *"RUNNING"* ]] && [[ "$INPUT_STATUS" == *"RUNNING"* ]]; then
             echo "=========================================="
             echo "Streaming Ready!"
             echo "=========================================="
@@ -113,7 +123,7 @@ case "$ACTION" in
             echo "     Open https://10.200.200.1:47990 in browser"
             echo ""
             echo "Troubleshooting:"
-            echo "  - If mouse doesn't work: disconnect and reconnect in Moonlight"
+            echo "  - If mouse doesn't work: check input forwarder is running"
             echo "  - Check status: ./stream.sh status"
             echo "  - View logs: ./stream.sh logs"
             echo ""
@@ -125,7 +135,7 @@ case "$ACTION" in
 
     stop)
         echo "Stopping streaming services..."
-        run_command "pkill -9 sunshine 2>/dev/null || true; pkill -9 openbox 2>/dev/null || true; pkill -9 xterm 2>/dev/null || true; pkill -9 Xvfb 2>/dev/null || true" 3
+        run_command "pkill -f input-forwarder 2>/dev/null || true; pkill -f input_forward 2>/dev/null || true; pkill -9 sunshine 2>/dev/null || true; pkill -9 openbox 2>/dev/null || true; pkill -9 xterm 2>/dev/null || true; pkill -9 Xvfb 2>/dev/null || true" 3
         echo "Services stopped."
         ;;
 
@@ -133,7 +143,7 @@ case "$ACTION" in
         echo "Service status:"
         echo ""
 
-        STATUS=$(run_command "echo '=== Processes ==='; ps aux | grep -E 'Xvfb|sunshine|openbox' | grep -v grep || echo 'No streaming processes'; echo ''; echo '=== Sunshine Ports ==='; ss -tlnp 2>/dev/null | grep sunshine || echo 'No ports listening'; echo ''; echo '=== Input Devices ==='; ls -la /dev/uinput /dev/dri/card0 2>/dev/null || echo 'Device check failed'" 5)
+        STATUS=$(run_command "echo '=== Processes ==='; ps aux | grep -E 'Xvfb|sunshine|openbox|input-forwarder|input_forward' | grep -v grep || echo 'No streaming processes'; echo ''; echo '=== Sunshine Ports ==='; ss -tlnp 2>/dev/null | grep sunshine || echo 'No ports listening'; echo ''; echo '=== Input Devices ==='; ls -la /dev/uinput /dev/dri/card0 2>/dev/null || echo 'Device check failed'" 5)
         echo "$STATUS"
         ;;
 

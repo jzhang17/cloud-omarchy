@@ -41,7 +41,7 @@ Omarchy Cloud - A GPU-accelerated Linux streaming workstation on AWS. Stream a f
 | `./vpn.sh up` | Connect to WireGuard VPN |
 | `./vpn.sh down` | Disconnect VPN |
 | `./vpn.sh status` | Show VPN connection status |
-| `./stream.sh` | Start Xvfb + Openbox + Sunshine |
+| `./stream.sh` | Start Xvfb + Openbox + Sunshine + Input Forwarder |
 | `./stream.sh stop` | Stop streaming services |
 | `./stream.sh status` | Check streaming service status |
 | `./stream.sh logs` | View recent Sunshine logs |
@@ -85,6 +85,7 @@ Omarchy Cloud - A GPU-accelerated Linux streaming workstation on AWS. Stream a f
 - **EC2 g4dn.xlarge**: NVIDIA Tesla T4 GPU for hardware encoding
 - **Xvfb**: Virtual framebuffer for headless display
 - **Sunshine**: Game streaming server (NVENC encoding)
+- **Input Forwarder**: Python script that bridges Sunshine's uinput devices to X11 (required because Xvfb doesn't read from uinput)
 - **WireGuard**: Secure VPN tunnel for streaming traffic
 - **Moonlight**: Client app on Mac for receiving stream
 
@@ -198,17 +199,23 @@ This will:
 
 **Symptom:** Video streams but mouse cursor doesn't move.
 
-**Solution:** Fully disconnect from Moonlight and reconnect:
-1. Press Ctrl+Shift+Alt+Q (or your quit shortcut) to disconnect
-2. Wait 3-5 seconds
-3. Reconnect to 10.200.200.1
+**Cause:** The input forwarder may not be running. Xvfb doesn't read from uinput devices directly, so we use a Python script (`input-forwarder`) that reads Sunshine's virtual mouse/keyboard and injects events into X11 via xdotool.
 
-This re-establishes the control channel which carries input events.
+**Solution:** Check that the input forwarder is running:
+```bash
+./stream.sh status  # Should show "Input Forwarder: RUNNING"
+```
 
-**If that doesn't work:**
+If it's not running, restart streaming:
 ```bash
 ./stream.sh stop
-./stream.sh start  # Restarts with fresh permissions
+./stream.sh start
+```
+
+**Manual fix (if needed):**
+```bash
+./connect.sh  # SSM into instance
+pgrep -f input-forwarder || /usr/local/bin/input-forwarder &
 ```
 
 ### Black Screen in Stream
@@ -233,13 +240,18 @@ The NVIDIA EGL libraries can conflict with Xvfb. The `stream.sh` script handles 
 
 **Symptom:** Sunshine shows "Failed to initialize video capture" error.
 
-**Cause:** Sunshine started before Xvfb was ready or without DISPLAY variable.
+**Cause:** Either:
+1. Sunshine started before Xvfb was ready
+2. Sunshine config is missing `capture = x11` and `output_name = 0`
+3. Another Sunshine process is holding the ports
 
 **Solution:**
 ```bash
 ./stream.sh stop
-./stream.sh start
+./stream.sh start  # This now ensures correct Sunshine config
 ```
+
+The `stream.sh` script now automatically configures Sunshine for X11 capture mode.
 
 ### SSM Connection Issues
 
@@ -268,9 +280,8 @@ The instance gets a new public IP on each start. The `start.sh` script updates `
 
 ## Known Issues
 
-- **Mouse input occasionally doesn't work on first connect** - disconnect and reconnect in Moonlight to fix
-- **Hyprland not yet configured** - currently using Openbox; Hyprland needs Wayland support investigation
-- **Input requires fresh connection** - if you restart streaming services, reconnect in Moonlight
+- **Hyprland not yet configured** - currently using Openbox; Hyprland needs Wayland support investigation (requires Wayland compositor instead of Xvfb)
+- **Input forwarder required** - Xvfb doesn't support uinput devices natively, so we use a Python bridge script
 
 ## Notes
 

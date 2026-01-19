@@ -35,7 +35,14 @@ pacman -S --noconfirm --needed \
     vim \
     wireguard-tools \
     qrencode \
-    linux-headers
+    linux-headers \
+    xorg-server-xvfb \
+    xorg-xinput \
+    xdotool \
+    openbox \
+    xterm \
+    python-pip \
+    python-evdev
 
 # ============================================
 # PART 2: Install yay (AUR helper)
@@ -181,7 +188,112 @@ systemctl daemon-reload
 systemctl enable sunshine
 
 # ============================================
-# PART 9: Setup Omarchy installer
+# PART 9: Configure Sunshine for X11 streaming
+# ============================================
+echo "=== Configuring Sunshine for X11 capture ==="
+
+# Create Sunshine config directory
+SUNSHINE_CONFIG_DIR="$USER_HOME/.config/sunshine"
+mkdir -p "$SUNSHINE_CONFIG_DIR"
+
+# Create Sunshine config optimized for Xvfb
+cat > "$SUNSHINE_CONFIG_DIR/sunshine.conf" << 'EOF'
+min_log_level = 0
+capture = x11
+output_name = 0
+keyboard = enabled
+mouse = enabled
+EOF
+
+chown -R $DEFAULT_USER:$DEFAULT_USER "$SUNSHINE_CONFIG_DIR"
+
+# ============================================
+# PART 10: Create Input Forwarder Script
+# ============================================
+echo "=== Creating input forwarder for Xvfb ==="
+
+# Input forwarder bridges Sunshine's uinput devices to X11 via xdotool
+cat > /usr/local/bin/input-forwarder << 'INPUTEOF'
+#!/usr/bin/env python3
+"""
+Input Forwarder: Bridges Sunshine's uinput mouse/keyboard to X11 via xdotool.
+Required because Xvfb doesn't read from uinput devices directly.
+"""
+import evdev
+import subprocess
+import os
+import sys
+
+os.environ["DISPLAY"] = ":0"
+
+def find_sunshine_mouse():
+    """Find Sunshine's mouse passthrough device."""
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    for dev in devices:
+        if "Mouse passthrough" in dev.name and "absolute" not in dev.name:
+            return dev
+    return None
+
+def main():
+    mouse_dev = find_sunshine_mouse()
+    if not mouse_dev:
+        print("Waiting for Sunshine mouse device...", file=sys.stderr)
+        import time
+        for _ in range(30):
+            time.sleep(1)
+            mouse_dev = find_sunshine_mouse()
+            if mouse_dev:
+                break
+        if not mouse_dev:
+            print("No Sunshine mouse found after 30s", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"Forwarding: {mouse_dev.name}", file=sys.stderr, flush=True)
+
+    for event in mouse_dev.read_loop():
+        if event.type == evdev.ecodes.EV_REL:
+            if event.code == evdev.ecodes.REL_X:
+                subprocess.run(["xdotool", "mousemove_relative", "--", str(event.value), "0"],
+                             capture_output=True)
+            elif event.code == evdev.ecodes.REL_Y:
+                subprocess.run(["xdotool", "mousemove_relative", "--", "0", str(event.value)],
+                             capture_output=True)
+        elif event.type == evdev.ecodes.EV_KEY:
+            btn = None
+            if event.code == evdev.ecodes.BTN_LEFT:
+                btn = "1"
+            elif event.code == evdev.ecodes.BTN_RIGHT:
+                btn = "3"
+            elif event.code == evdev.ecodes.BTN_MIDDLE:
+                btn = "2"
+            if btn:
+                cmd = "mousedown" if event.value else "mouseup"
+                subprocess.run(["xdotool", cmd, btn], capture_output=True)
+
+if __name__ == "__main__":
+    main()
+INPUTEOF
+
+chmod +x /usr/local/bin/input-forwarder
+
+# ============================================
+# PART 11: Set up uinput permissions
+# ============================================
+echo "=== Setting up uinput permissions ==="
+
+# Add arch user to input group
+usermod -aG input,video $DEFAULT_USER
+
+# Create udev rule for uinput permissions
+cat > /etc/udev/rules.d/99-uinput.rules << 'EOF'
+KERNEL=="uinput", MODE="0666", GROUP="input"
+EOF
+
+# Load uinput module on boot
+echo "uinput" > /etc/modules-load.d/uinput.conf
+
+# ============================================
+# PART 12: Setup Omarchy installer
 # ============================================
 echo "=== Setting up Omarchy installer ==="
 
