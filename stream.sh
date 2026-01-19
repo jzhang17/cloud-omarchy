@@ -65,19 +65,23 @@ start_hyprland() {
     echo "Setting up permissions..."
     run_command "chmod 666 /dev/dri/card* 2>/dev/null || true; chmod 666 /dev/uinput 2>/dev/null || true" 2
 
-    # Step 3: Kill any existing compositor/streaming processes
+    # Step 3: Kill ALL existing compositor/streaming processes (prevent duplicates)
     echo "Cleaning up old processes..."
-    run_command "pkill -9 hyprland 2>/dev/null || true; pkill -9 Hyprland 2>/dev/null || true; pkill -9 sunshine 2>/dev/null || true; pkill -9 foot 2>/dev/null || true" 2
-    sleep 1
+    run_command "pkill -9 hyprland 2>/dev/null || true; pkill -9 Hyprland 2>/dev/null || true; pkill -9 hyprland-welcome 2>/dev/null || true; pkill -9 sunshine 2>/dev/null || true; pkill -9 foot 2>/dev/null || true" 2
+    sleep 2
 
-    # Step 4: Start seatd for seat management
-    echo "Starting seatd..."
-    run_command "systemctl start seatd 2>/dev/null || true; usermod -aG seat arch 2>/dev/null || true" 2
+    # Step 4: Clean up stale Hyprland runtime state (prevents multiple instance issues)
+    echo "Cleaning up stale state..."
+    run_command "rm -rf /run/user/1000/hypr 2>/dev/null || true; rm -f /run/user/1000/wayland-* 2>/dev/null || true" 2
 
-    # Step 5: Set up XDG runtime directory
+    # Step 5: Restart seatd to clear any stuck clients
+    echo "Restarting seatd..."
+    run_command "systemctl restart seatd 2>/dev/null || true; usermod -aG seat arch 2>/dev/null || true" 3
+
+    # Step 6: Set up XDG runtime directory
     run_command "mkdir -p /run/user/1000; chown arch:arch /run/user/1000; chmod 700 /run/user/1000" 2
 
-    # Step 6: Find vkms card (usually card1, but verify)
+    # Step 7: Find vkms card (usually card1, but verify)
     echo "Finding vkms display..."
     VKMS_CARD=$(run_command "for card in /sys/class/drm/card*/device/driver; do if readlink \$card 2>/dev/null | grep -q vkms; then basename \$(dirname \$(dirname \$card)); break; fi; done" 3)
     VKMS_CARD=$(echo "$VKMS_CARD" | tr -d '[:space:]')
@@ -86,29 +90,39 @@ start_hyprland() {
     fi
     echo "  Using: /dev/dri/$VKMS_CARD"
 
-    # Step 7: Start Hyprland with vkms
+    # Step 8: Start Hyprland with vkms (single instance only)
     echo "Starting Hyprland..."
     run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; export LIBSEAT_BACKEND=seatd; export AQ_DRM_DEVICES=/dev/dri/$VKMS_CARD; nohup hyprland > /tmp/hyprland.log 2>&1 &'" 5
 
-    # Step 8: Wait for Hyprland to start and configure monitor
+    # Step 9: Wait and verify only one Hyprland is running
+    echo "Verifying single instance..."
+    HYPR_COUNT=$(run_command "pgrep -c hyprland 2>/dev/null || echo 0" 2)
+    HYPR_COUNT=$(echo "$HYPR_COUNT" | tr -d '[:space:]')
+    if [ "$HYPR_COUNT" -gt 2 ]; then
+        echo "WARNING: Multiple Hyprland instances detected ($HYPR_COUNT). Cleaning up..."
+        run_command "pkill -9 hyprland 2>/dev/null || true; pkill -9 Hyprland 2>/dev/null || true; sleep 2; sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; export LIBSEAT_BACKEND=seatd; export AQ_DRM_DEVICES=/dev/dri/$VKMS_CARD; nohup hyprland > /tmp/hyprland.log 2>&1 &'" 5
+    fi
+
+    # Step 10: Wait for Hyprland to start and configure monitor
     # MacBook Pro 14" M1 Pro native resolution: 3024x1964
     echo "Configuring display (3024x1964 for MBP 14\")..."
     sleep 2
     run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; hyprctl keyword monitor Virtual-1,3024x1964@60,0x0,1 2>/dev/null || true'" 3
 
-    # Step 9: Start a terminal so there's something to see
+    # Step 11: Start a terminal so there's something to see
     echo "Starting terminal..."
     run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; hyprctl dispatch exec foot 2>/dev/null || true'" 2
 
-    # Step 10: Ensure Sunshine config is set for Wayland with HEVC
-    echo "Configuring Sunshine for Wayland (HEVC)..."
-    run_command "cp /home/arch/.config/sunshine/sunshine.conf /home/arch/.config/sunshine/sunshine.conf.bak 2>/dev/null || true; echo -e 'min_log_level = 0\ncapture = wlr\nencoder = nvenc\nhevc_mode = 2\nkeyboard = enabled\nmouse = enabled' > /home/arch/.config/sunshine/sunshine.conf; chown arch:arch /home/arch/.config/sunshine/sunshine.conf" 2
+    # Step 12: Ensure Sunshine config is set for KMS capture with NVENC HEVC
+    # Using KMS capture (not wlr) enables hardware encoding via NVENC
+    echo "Configuring Sunshine for KMS capture + NVENC (HEVC)..."
+    run_command "cp /home/arch/.config/sunshine/sunshine.conf /home/arch/.config/sunshine/sunshine.conf.bak 2>/dev/null || true; echo -e 'min_log_level = 0\ncapture = kms\nencoder = nvenc\nhevc_mode = 2\nkeyboard = enabled\nmouse = enabled' > /home/arch/.config/sunshine/sunshine.conf; chown arch:arch /home/arch/.config/sunshine/sunshine.conf" 2
 
-    # Step 11: Find Wayland socket and start Sunshine
+    # Step 13: Find Wayland socket and start Sunshine
     echo "Starting Sunshine streaming server..."
     run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; export WAYLAND_DISPLAY=wayland-1; nohup sunshine > /tmp/sunshine.log 2>&1 &'" 4
 
-    # Step 12: Verify services
+    # Step 14: Verify services
     verify_services "hyprland"
 }
 

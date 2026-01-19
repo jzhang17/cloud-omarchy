@@ -198,11 +198,12 @@ echo "=== Configuring Sunshine for streaming ==="
 SUNSHINE_CONFIG_DIR="$USER_HOME/.config/sunshine"
 mkdir -p "$SUNSHINE_CONFIG_DIR"
 
-# Create Sunshine config for Wayland (Hyprland) - default for G5
+# Create Sunshine config for KMS capture with NVENC - default for G5
+# KMS capture enables hardware encoding via NVENC (wlr capture doesn't work with NVENC)
 # For X11 (Xvfb/Openbox), stream.sh will override capture mode
 cat > "$SUNSHINE_CONFIG_DIR/sunshine.conf" << 'EOF'
 min_log_level = 0
-capture = wlr
+capture = kms
 encoder = nvenc
 hevc_mode = 2
 keyboard = enabled
