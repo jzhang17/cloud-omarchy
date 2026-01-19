@@ -91,9 +91,10 @@ start_hyprland() {
     run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; export LIBSEAT_BACKEND=seatd; export AQ_DRM_DEVICES=/dev/dri/$VKMS_CARD; nohup hyprland > /tmp/hyprland.log 2>&1 &'" 5
 
     # Step 8: Wait for Hyprland to start and configure monitor
-    echo "Configuring display..."
+    # MacBook Pro 14" M1 Pro native resolution: 3024x1964
+    echo "Configuring display (3024x1964 for MBP 14\")..."
     sleep 2
-    run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; hyprctl keyword monitor Virtual-1,1920x1080@60,0x0,1 2>/dev/null || true'" 3
+    run_command "sudo -u arch bash -c 'export XDG_RUNTIME_DIR=/run/user/1000; hyprctl keyword monitor Virtual-1,3024x1964@60,0x0,1 2>/dev/null || true'" 3
 
     # Step 9: Start a terminal so there's something to see
     echo "Starting terminal..."
